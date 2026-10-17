@@ -98,7 +98,16 @@ export default mergeConfig(
       sourcemap: !packExecutable,
       clean: true,
       // SEA can only resolve built-ins; keep dynamic imports inside each emitted module.
-      ...(packExecutable ? { outputOptions: { codeSplitting: false } } : {}),
+      ...(packExecutable
+        ? {
+            outputOptions: { codeSplitting: false },
+            minify: {
+              compress: false,
+              mangle: false,
+              codegen: { removeWhitespace: true, asciiOnly: true, legalComments: "none" },
+            },
+          }
+        : {}),
       ...(packMode === "1"
         ? {
             exe: {
@@ -109,7 +118,7 @@ export default mergeConfig(
               seaConfig: {
                 useCodeCache: false,
                 // The bootstrap loads the embedded CLI with require(esm).
-                execArgv: ["--require-module"],
+                execArgv: ["--require-module", "--max-semi-space-size=4"],
                 assets: { "binMain.mjs": NodePath.join(cliAssetDir, "binMain.mjs") },
               },
             },
