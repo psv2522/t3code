@@ -957,6 +957,7 @@ interface ResolvedBuildOptions {
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslRuntime: string | undefined;
+  readonly clientOnly: boolean;
 }
 
 interface StagePackageJson {
@@ -1681,6 +1682,7 @@ const BuildEnvConfig = Config.all({
   mockUpdates: Config.Boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.String("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
   wslRuntime: Config.String("T3CODE_DESKTOP_WSL_RUNTIME").pipe(Config.option),
+  clientOnly: Config.Boolean("T3CODE_DESKTOP_CLIENT_ONLY").pipe(Config.withDefault(false)),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1788,6 +1790,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     mockUpdates,
     mockUpdateServerPort,
     wslRuntime,
+    clientOnly: env.clientOnly,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -3803,7 +3806,13 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     );
   }
   if (options.platform !== "win") {
-    yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+    const serverDistSource = options.clientOnly
+      ? path.join(distDirs.serverDist, "client")
+      : distDirs.serverDist;
+    const serverDistTarget = options.clientOnly
+      ? path.join(stageAppDir, "apps/server/dist/client")
+      : path.join(stageAppDir, "apps/server/dist");
+    yield* fs.copy(serverDistSource, serverDistTarget);
   }
   yield* stageResourceMonitor({
     repoRoot,
@@ -3885,7 +3894,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
 
   const stageDependencies =
-    options.platform === "win"
+    options.platform === "win" || options.clientOnly
       ? { ...resolvedDesktopRuntimeDependencies }
       : resolveMergedStageDependencies({
           platform: options.platform,
