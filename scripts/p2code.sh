@@ -168,24 +168,26 @@ cmd_build() {
   zip="$(find "$build_dir/desktop" -maxdepth 1 -name '*.zip' | head -n 1)"
   [[ -n "$zip" ]] || die "No desktop zip was produced in $build_dir/desktop."
 
-  log "Verifying desktop app"
-  local verify_dir="$build_dir/verify"
-  mkdir -p "$verify_dir"
-  ditto -x -k "$zip" "$verify_dir"
+  log "Verifying and ad hoc signing desktop app"
+  local app_dir="$build_dir/app"
+  mkdir -p "$app_dir"
+  ditto -x -k "$zip" "$app_dir"
   local app
-  app="$(find "$verify_dir" -maxdepth 1 -name '*.app' | head -n 1)"
+  app="$(find "$app_dir" -maxdepth 1 -name '*.app' | head -n 1)"
   [[ -n "$app" ]] || die "No .app inside $zip."
   printf 'app: %s\n' "$(basename "$app")"
   [[ "$(basename "$app" .app)" == "$INSTALLED_APP_NAME" ]] ||
     die "Built app is '$(basename "$app")', not '$INSTALLED_APP_NAME.app'; installing would leave two apps."
   [[ ! -e "$app/Contents/Resources/app-update.yml" ]] || die "Built app has an update feed (app-update.yml); it would auto-update to official builds."
-  codesign --verify --deep --strict "$app" || die "Built app failed codesign verification."
   local plist_version
   plist_version="$(defaults read "$app/Contents/Info" CFBundleShortVersionString)"
   [[ "$plist_version" == "$version" ]] || die "App reports version $plist_version, expected $version."
   grep -aq 'relay.t3.codes' "$app/Contents/Resources/app.asar" || die "relay.t3.codes is not baked into the desktop bundle."
   grep -arqs 'relay.t3.codes' "$REPO/apps/server/dist" || die "relay.t3.codes is not baked into the server bundle."
-  rm -rf "$verify_dir"
+  codesign --force --deep --sign - "$app" || die "Ad hoc signing failed."
+  codesign --verify --deep --strict "$app" || die "Built app failed codesign verification."
+  [[ "$(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')" == "com.t3tools.t3code" ]] ||
+    die "Signed app has an unexpected bundle identifier."
 
   log "Staging local release"
   local release_dir="$build_dir/release/v$version"
@@ -264,9 +266,9 @@ cmd_install() {
   validate_version "$version"
   local build_dir="$OUT_ROOT/builds/$version"
   local release_dir="$build_dir/release"
-  local zip
-  zip="$(find "$build_dir/desktop" -maxdepth 1 -name '*.zip' 2>/dev/null | head -n 1)"
-  [[ -f "$release_dir/v$version/SHA256SUMS" && -n "$zip" ]] || die "Build $version is incomplete under $build_dir."
+  local built_app="$build_dir/app/$INSTALLED_APP_NAME.app"
+  [[ -f "$release_dir/v$version/SHA256SUMS" && -d "$built_app" ]] || die "Build $version is incomplete under $build_dir."
+  codesign --verify --deep --strict "$built_app" || die "Built app failed codesign verification."
   (cd "$release_dir/v$version" && shasum -a 256 -c SHA256SUMS >/dev/null) || die "Release checksum mismatch."
 
   local previous
@@ -318,16 +320,9 @@ cmd_install() {
   "$T3_HOME/runtime/versions/$version/t3" service status || true
 
   log "Replacing $INSTALLED_APP_NAME"
-  local stage
-  stage="$(mktemp -d "${TMPDIR:-/tmp}/p2code-app.XXXXXX")"
-  ditto -x -k "$zip" "$stage"
-  local new_app
-  new_app="$(find "$stage" -maxdepth 1 -name '*.app' | head -n 1)"
-  [[ -n "$new_app" ]] || die "No .app in $zip. Run: scripts/p2code.sh rollback"
-  xattr -cr "$new_app"
   rm -rf "$APPS_DIR/$INSTALLED_APP_NAME.app"
-  mv "$new_app" "$APPS_DIR/$INSTALLED_APP_NAME.app"
-  rm -rf "$stage"
+  ditto "$built_app" "$APPS_DIR/$INSTALLED_APP_NAME.app"
+  xattr -cr "$APPS_DIR/$INSTALLED_APP_NAME.app"
 
   log "Opening $INSTALLED_APP_NAME"
   open "$APPS_DIR/$INSTALLED_APP_NAME.app"
