@@ -43,18 +43,18 @@ describe("local environment IPC", () => {
       layerUnusedLifecycleRuntime,
     );
     return Effect.gen(function* () {
-      yield* setLocalEnvironmentEnabled.handler(false);
-      assert.isFalse(yield* getLocalEnvironmentEnabled.handler());
-      yield* setLocalEnvironmentEnabled.handler(false);
-      assert.deepEqual(relaunchReasons, ["localEnvironmentEnabled=false"]);
-
       yield* setLocalEnvironmentEnabled.handler(true);
       assert.isTrue(yield* getLocalEnvironmentEnabled.handler());
+      yield* setLocalEnvironmentEnabled.handler(true);
+      assert.deepEqual(relaunchReasons, ["localEnvironmentEnabled=true"]);
+
+      yield* setLocalEnvironmentEnabled.handler(false);
+      assert.isFalse(yield* getLocalEnvironmentEnabled.handler());
       const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
       assert.isTrue((yield* appSettings.get).wslBackendEnabled);
       assert.deepEqual(relaunchReasons, [
-        "localEnvironmentEnabled=false",
         "localEnvironmentEnabled=true",
+        "localEnvironmentEnabled=false",
       ]);
     }).pipe(Effect.provide(layer));
   });
