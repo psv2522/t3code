@@ -7,7 +7,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { AuthenticationError, Cursor, CursorSdkError } from "./sdk.ts";
+import { loadCursorSdk } from "./sdk.ts";
 
 export interface CursorSdkCatalogSnapshot {
   readonly user: SDKUser;
@@ -28,7 +28,10 @@ export class CursorSdkCatalogError extends Schema.TaggedError<CursorSdkCatalogEr
   }
 
   get planRequired(): boolean {
-    return this.cause instanceof CursorSdkError && this.cause.code === "plan_required";
+    // Structural so reading it never loads the SDK.
+    return (
+      this.cause instanceof Error && "code" in this.cause && this.cause.code === "plan_required"
+    );
   }
 }
 
@@ -41,10 +44,10 @@ export class CursorSdkCatalog extends Context.Service<
   }
 >()("@t3tools/provider-cursor/server/CursorSdkCatalog") {}
 
-function isAuthenticationFailure(cause: unknown): boolean {
+function isAuthenticationFailure(sdk: typeof import("@cursor/sdk"), cause: unknown): boolean {
   return (
-    cause instanceof AuthenticationError ||
-    (cause instanceof CursorSdkError && cause.status === 401)
+    cause instanceof sdk.AuthenticationError ||
+    (cause instanceof sdk.CursorSdkError && cause.status === 401)
   );
 }
 
@@ -55,19 +58,26 @@ export interface CursorSdkCatalogProbes {
   ) => Effect.Effect<ReadonlyArray<SDKModel>, CursorSdkCatalogError>;
 }
 
-const sdkRequest = <A>(tryRequest: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: tryRequest,
-    catch: (cause) =>
-      new CursorSdkCatalogError({
-        authenticationFailure: isAuthenticationFailure(cause),
-        cause,
+const sdkRequest = <A>(request: (sdk: typeof import("@cursor/sdk")) => Promise<A>) =>
+  Effect.try({
+    try: loadCursorSdk,
+    catch: (cause) => new CursorSdkCatalogError({ authenticationFailure: false, cause }),
+  }).pipe(
+    Effect.flatMap((sdk) =>
+      Effect.tryPromise({
+        try: () => request(sdk),
+        catch: (cause) =>
+          new CursorSdkCatalogError({
+            authenticationFailure: isAuthenticationFailure(sdk, cause),
+            cause,
+          }),
       }),
-  });
+    ),
+  );
 
 const liveProbes: CursorSdkCatalogProbes = {
-  readUser: (apiKey) => sdkRequest(() => Cursor.me({ apiKey })),
-  readModels: (apiKey) => sdkRequest(() => Cursor.models.list({ apiKey })),
+  readUser: (apiKey) => sdkRequest((sdk) => sdk.Cursor.me({ apiKey })),
+  readModels: (apiKey) => sdkRequest((sdk) => sdk.Cursor.models.list({ apiKey })),
 };
 
 export const makeCursorSdkCatalog = Effect.fn("CursorSdkCatalog.make")(function* (

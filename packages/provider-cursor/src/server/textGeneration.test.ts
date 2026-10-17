@@ -27,11 +27,11 @@ const cursorSdkMock = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("./sdk.ts", () => ({
-  Agent: { create: cursorSdkMock.create },
-  createAgentPlatform: vi.fn(),
-  SqliteLocalAgentStore: { open: cursorSdkMock.storeOpen },
-}));
+vi.mock("./sdk.ts", () => {
+  const sdk = { Agent: { create: cursorSdkMock.create }, createAgentPlatform: vi.fn() };
+  const sqlite = { SqliteLocalAgentStore: { open: cursorSdkMock.storeOpen } };
+  return { loadCursorSdk: () => sdk, loadCursorSdkSqlite: () => sqlite };
+});
 
 let hasCustomPolicy = false;
 const layerFs = FileSystem.layerNoop({

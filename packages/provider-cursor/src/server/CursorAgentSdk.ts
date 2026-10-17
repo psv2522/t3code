@@ -328,7 +328,7 @@ function makeCursorAgentSdkProtocolLogger(input: {
 export const makeCursorAgentSdkRunner = Effect.fn("makeCursorAgentSdkRunner")(function* (
   protocolLoggerFor: (input: CursorAgentSdkOpenInput) => CursorAgentSdkProtocolLogger | undefined,
 ) {
-  const { Agent, createAgentPlatform } = yield* CursorSdk.CursorSdk;
+  const cursorSdk = yield* CursorSdk.CursorSdk;
 
   /**
    * The Cursor SDK decides once per process whether local sandboxing works, and
@@ -346,7 +346,9 @@ export const makeCursorAgentSdkRunner = Effect.fn("makeCursorAgentSdkRunner")(fu
       }
       yield* Effect.tryPromise(async () => {
         const cwd = typeof options.local?.cwd === "string" ? options.local.cwd : undefined;
-        const platform = await createAgentPlatform(cwd === undefined ? {} : { workspaceRef: cwd });
+        const platform = await cursorSdk
+          .load()
+          .createAgentPlatform(cwd === undefined ? {} : { workspaceRef: cwd });
         const release = await platform.prewarmLocalWorkspace({
           ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
           local: {
@@ -362,6 +364,10 @@ export const makeCursorAgentSdkRunner = Effect.fn("makeCursorAgentSdkRunner")(fu
 
   return CursorAgentSdkRunner.of({
     open: Effect.fn("CursorAgentSdkRunner.open")(function* (input) {
+      const { Agent } = yield* Effect.try({
+        try: () => cursorSdk.load(),
+        catch: (cause) => runnerError(cause, "sdk.load"),
+      });
       if (input.options.local?.sandboxOptions?.enabled === false) {
         yield* primeCursorSandboxSupport(input.options);
       }
