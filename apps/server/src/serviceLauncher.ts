@@ -1218,7 +1218,12 @@ export class Launcher {
     const appendStdout = this.#output === undefined && isRegularFile(1);
     const appendStderr = this.#output === undefined && isRegularFile(2);
     const child = NodeChildProcess.spawn(spawnArguments.command, spawnArguments.args, {
-      env: { ...this.#environment, [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify(context) },
+      env: {
+        ...this.#environment,
+        // Server only: bin.ts drops it at startup so the server's children don't inherit it.
+        MallocSpaceEfficient: "1",
+        [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify(context),
+      },
       stdio:
         this.#output === undefined
           ? ["inherit", appendStdout ? "pipe" : "inherit", appendStderr ? "pipe" : "inherit", "ipc"]

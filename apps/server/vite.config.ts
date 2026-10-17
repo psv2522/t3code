@@ -1,5 +1,6 @@
 import "vite-plus/test/config";
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- tsdown needs the asset path when it reads this config.
+// @effect-diagnostics nodeBuiltinImport:off -- tsdown needs the asset path and the undici require when it reads this config.
+import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import { defineConfig, mergeConfig } from "vite-plus";
 
@@ -73,6 +74,25 @@ const packExecutableTargets = packExecutableTarget
     ]
   : undefined;
 
+// Effect's Undici module statically imports undici, which a single-executable cannot resolve.
+function undiciRequirePlugin() {
+  return {
+    name: "undici-require",
+    transform: (_code: string, id: string) => {
+      if (!/@effect\/platform-node\/dist\/Undici\.js$/.test(id.replaceAll("\\", "/"))) return null;
+      const names = Object.keys(NodeModule.createRequire(import.meta.url)("undici")).filter(
+        (name) => name !== "default",
+      );
+      return [
+        `import { createRequire } from "node:module";`,
+        `const undici = createRequire(import.meta.url)("undici");`,
+        `export default undici;`,
+        `export const { ${names.join(", ")} } = undici;`,
+      ].join("\n");
+    },
+  };
+}
+
 // The root config's `projects` route repo-root runs to package configs,
 // including this one. Inheriting them would make this config a container.
 const { projects: _rootTestProjects, ...baseTestConfig } = baseConfig.test ?? {};
@@ -115,7 +135,16 @@ export default mergeConfig(
       sourcemap: !packExecutable,
       clean: true,
       // SEA can only resolve built-ins; keep dynamic imports inside each emitted module.
-      ...(packExecutable ? { outputOptions: { codeSplitting: false } } : {}),
+      ...(packExecutable
+        ? {
+            outputOptions: { codeSplitting: false },
+            minify: {
+              compress: false,
+              mangle: false,
+              codegen: { removeWhitespace: true, asciiOnly: true, legalComments: "none" },
+            },
+          }
+        : {}),
       ...(packMode === "1"
         ? {
             exe: {
@@ -126,7 +155,7 @@ export default mergeConfig(
               seaConfig: {
                 useCodeCache: false,
                 // The bootstrap loads the embedded CLI with require(esm).
-                execArgv: ["--require-module"],
+                execArgv: ["--require-module", "--max-semi-space-size=4", "--optimize-for-size"],
                 assets: { "binMain.mjs": NodePath.join(cliAssetDir, "binMain.mjs") },
               },
             },
@@ -134,6 +163,7 @@ export default mergeConfig(
         : {}),
       // jsonc-parser's UMD main requires its own files at runtime, which the bundle cannot follow.
       alias: { "jsonc-parser": "jsonc-parser/lib/esm/main.js" },
+      ...(packExecutable ? { plugins: [undiciRequirePlugin()] } : {}),
       deps: {
         // alwaysBundle=false has no opinion; neverBundle must retain transitive native acceleration.
         alwaysBundle: shouldBundleCliDependency,

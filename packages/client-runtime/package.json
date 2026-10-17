@@ -35,6 +35,10 @@
       "types": "./src/savedViews.ts",
       "default": "./src/savedViews.ts"
     },
+    "./p2codeUpdate": {
+      "types": "./src/p2codeUpdate.ts",
+      "default": "./src/p2codeUpdate.ts"
+    },
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"

@@ -17,6 +17,7 @@ export const SERVICE_STATE_FILE = "service-state.json";
 /** Set by the unit or launch agent to its own file name, so the launcher can
     find the definition that started it. */
 export const SERVICE_UNIT_ENV = "T3_BOOT_SERVICE_UNIT";
+export const BOOT_SERVICE_LOG_FILE = "boot-service.log";
 /** Written before explicit stop to distinguish shutdown from update handoff. */
 export const SERVICE_STOP_MARKER_FILE = ".service-stopping";
 /** Marks a repointed unit whose service still runs the old version; launcher startup clears it. */
