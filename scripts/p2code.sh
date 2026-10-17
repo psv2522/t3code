@@ -68,6 +68,7 @@ require_cmd() {
 }
 
 inside_t3_code() {
+  [[ -z "${T3_SERVICE_LAUNCHER_CONTEXT:-}" && -z "${T3_BOOT_SERVICE_UNIT:-}" ]] || return 0
   local pid=$$ cmd
   while [[ "$pid" -gt 1 ]]; do
     cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
@@ -200,6 +201,7 @@ cmd_build() {
   cp "$archive" "$release_dir/"
   (cd "$release_dir" && shasum -a 256 "t3-$version-darwin-arm64.tar.gz" > SHA256SUMS)
 
+  git -C "$REPO" rev-parse HEAD > "$build_dir/source-head"
   printf '%s' "$version" > "$OUT_ROOT/current"
   trap - EXIT
   restore_generated_files
@@ -334,6 +336,10 @@ cmd_install() {
 
   log "Opening $INSTALLED_APP_NAME"
   open "$APPS_DIR/$INSTALLED_APP_NAME.app"
+
+  if [[ -f "$build_dir/source-head" ]]; then
+    cp "$build_dir/source-head" "$OUT_ROOT/installed-head"
+  fi
 
   log "Installed p2code $version"
   printf 'backup:   %s\n' "$backup"
