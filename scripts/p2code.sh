@@ -240,7 +240,10 @@ backup_state() {
   for db in "$T3_HOME"/userdata/*.sqlite; do
     [[ -f "$db" ]] || continue
     name="$(basename "$db")"
-    sqlite3 "$db" ".backup '$backup/userdata/$name'"
+    if [[ "$name" == "server-owner.sqlite" ]]; then
+      continue
+    fi
+    sqlite3 -cmd ".timeout 30000" "$db" ".backup '$backup/userdata/$name'" || die "Could not back up $name."
   done
   cp "$T3_HOME"/userdata/*.json "$backup/userdata/" 2>/dev/null || true
   cp "$T3_HOME/runtime/service-state.json" "$backup/" 2>/dev/null || true
@@ -292,11 +295,11 @@ cmd_install() {
   quit_app
 
   log "Switching background server to $version"
-  local port server_pid
+  local port
   port="$(pick_free_port)"
   python3 -I -m http.server "$port" --bind 127.0.0.1 --directory "$release_dir" >/dev/null 2>&1 &
-  server_pid=$!
-  trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+  HTTP_PID=$!
+  trap 'kill "$HTTP_PID" 2>/dev/null || true' EXIT
   local tries=0
   until curl -fsS "http://127.0.0.1:$port/v$version/SHA256SUMS" >/dev/null 2>&1; do
     tries=$((tries + 1))
@@ -305,7 +308,7 @@ cmd_install() {
   done
   T3CODE_RELEASE_BASE_URL="http://127.0.0.1:$port" "$previous_t3" update "$version" --yes ||
     die "t3 update failed. Nothing was replaced yet; reopen $INSTALLED_APP_NAME. Backup: $backup"
-  kill "$server_pid" 2>/dev/null || true
+  kill "$HTTP_PID" 2>/dev/null || true
   trap - EXIT
 
   repoint_launcher "$version"
@@ -361,6 +364,7 @@ cmd_rollback() {
 }
 
 main() {
+  [[ "$EUID" -ne 0 ]] || die "Do not run this with sudo. A root run creates a separate T3 installation and root-owned files. Run it as your normal user."
   local command="${1:-}"
   shift || true
   ASSUME_YES=0
