@@ -33,6 +33,7 @@ Usage: scripts/p2code.sh <command> [options]
   all [--yes]           build, then install
   rollback [--yes]      Restore the app and background server from the latest backup
   prune [--dry-run]     Delete old builds, backups and downloaded server versions (install runs it)
+  build-node            Compile the pointer-compressed Node the server executable is built on (about an hour)
   version               Print the version the next build would use
 
 Options:
@@ -103,6 +104,53 @@ confirm() {
   [[ "$reply" == "y" || "$reply" == "Y" ]]
 }
 
+sea_node_version() {
+  local version
+  version="$(sed -n 's/^const SEA_NODE_VERSION = "\([^"]*\)";.*/\1/p' "$REPO/apps/server/vite.config.ts" | head -n 1)"
+  printf '%s' "${version:-$SEA_NODE_VERSION}"
+}
+
+pointer_compressed_node() {
+  printf '%s/node-pc/v%s/node' "$OUT_ROOT" "$1"
+}
+
+cmd_build_node() {
+  require_cmd curl
+  require_cmd make
+  require_cmd shasum
+  local python
+  for python in python3.14 python3.13 python3.12 python3.11 python3.10; do
+    command -v "$python" >/dev/null && break
+    python=""
+  done
+  [[ -n "$python" ]] || die "Building Node needs Python 3.10 to 3.14 on PATH (brew install python)."
+
+  local version dest work
+  version="$(sea_node_version)"
+  dest="$(pointer_compressed_node "$version")"
+  [[ ! -x "$dest" ]] || { log "Pointer-compressed Node $version is already at $dest"; return 0; }
+  work="$OUT_ROOT/node-pc/src"
+  init_step_log "$OUT_ROOT/build-node.log"
+  log "Building pointer-compressed Node $version"
+  rm -rf "$work"
+  mkdir -p "$work"
+  cd "$work"
+  step "Downloading source" curl -fsSL \
+    -O "https://nodejs.org/dist/v$version/node-v$version.tar.xz" \
+    -O "https://nodejs.org/dist/v$version/SHASUMS256.txt"
+  step "Verifying checksum" sh -c "grep ' node-v$version.tar.xz\$' SHASUMS256.txt | shasum -a 256 -c -"
+  step "Unpacking" tar -xJf "node-v$version.tar.xz"
+  cd "node-v$version"
+  step "Configuring" ./configure --experimental-enable-pointer-compression
+  step "Compiling" make -j"$(sysctl -n hw.ncpu)"
+  step "Checking pointer compression" sh -c "out/Release/node -p process.config.variables.v8_enable_pointer_compression | grep -qx 1"
+  mkdir -p "$(dirname "$dest")"
+  cp out/Release/node "$dest"
+  cd "$REPO"
+  rm -rf "$work"
+  log "Built $dest"
+}
+
 restore_generated_files() {
   git -C "$REPO" checkout -- "${VERSION_FILES[@]}" "${GENERATED_FILES[@]}" 2>/dev/null || true
 }
@@ -123,8 +171,7 @@ cmd_build() {
   local clean_path sea_node
   clean_path="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/fnm_multishells/' | paste -sd: -)"
   export PATH="$HOME/.local/share/vite-plus/bin:$clean_path"
-  sea_node="$(sed -n 's/^const SEA_NODE_VERSION = "\([^"]*\)";.*/\1/p' apps/server/vite.config.ts | head -n 1)"
-  sea_node="${sea_node:-$SEA_NODE_VERSION}"
+  sea_node="$(sea_node_version)"
   [[ -f .env ]] || die "Missing $REPO/.env. Run: cp .env.example .env"
   grep -q '^T3CODE_RELAY_URL=https://' .env || die ".env has no T3CODE_RELAY_URL, so T3 Connect would be disabled."
   grep -q '^T3CODE_CLERK_PUBLISHABLE_KEY=.' .env || die ".env has no T3CODE_CLERK_PUBLISHABLE_KEY, so T3 Connect would be disabled."
@@ -161,9 +208,22 @@ cmd_build() {
 
   step "Aligning package versions" node scripts/update-release-package-versions.ts "$version"
   step "Building server, web client and desktop bundle" vp run build:desktop
-  step "Building server executable (Node $sea_node)" env VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --verbose
+  # The executable embeds the Node that runs `--build-sea`, so a shim makes `vp pack` run on it.
+  local exe_node="node" exe_label="Node $sea_node" exe_path="$PATH" pc_node vp_shim
+  pc_node="$(pointer_compressed_node "$sea_node")"
+  if [[ -x "$pc_node" ]]; then
+    vp_shim="$(mktemp -d)"
+    printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$pc_node" "$REPO/node_modules/vite-plus/bin/vp" >"$vp_shim/vp"
+    chmod 755 "$vp_shim/vp"
+    exe_node="$pc_node"
+    exe_label+=", pointer compression"
+    exe_path="$vp_shim:$PATH"
+  else
+    log "No pointer-compressed Node $sea_node at $pc_node; using stock Node. Run p2code build-node to build it."
+  fi
+  step "Building server executable ($exe_label)" env PATH="$exe_path" VP_NODE_VERSION="$sea_node" "$exe_node" apps/server/scripts/cli.ts build-exe --verbose
   step "Stripping server executable" strip -x apps/server/dist-exe/t3
-  step "Building launcher executable (Node $sea_node)" env VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --launcher --verbose
+  step "Building launcher executable ($exe_label)" env PATH="$exe_path" VP_NODE_VERSION="$sea_node" "$exe_node" apps/server/scripts/cli.ts build-exe --launcher --verbose
   step "Stripping launcher executable" strip -x apps/server/dist-launcher/t3-launcher
   step "Packaging CLI archive" node scripts/build-cli-archive.ts \
     --platform "$TARGET_PLATFORM" \
@@ -497,6 +557,7 @@ main() {
     all) cmd_build; cmd_install ;;
     rollback) cmd_rollback ;;
     prune) cmd_prune ;;
+    build-node) cmd_build_node ;;
     in-t3) inside_t3_code ;;
     version) compute_version; printf '\n' ;;
     *) usage; [[ -z "$command" || "$command" == "help" ]] || exit 1 ;;
