@@ -15,8 +15,7 @@ VERSION_FILES=(
 )
 GENERATED_FILES=(apps/web/src/routeTree.gen.ts)
 
-log() { printf '\n==> %s\n' "$*"; }
-die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
+source "$REPO/scripts/p2code-lib.sh"
 
 usage() {
   cat <<EOF
@@ -28,10 +27,17 @@ Usage: scripts/p2code.sh <command> [options]
   rollback [--yes]      Restore the app and background server from the latest backup
   version               Print the version the next build would use
 
+Options:
+  -v, --verbose         Show full command output instead of one line per step
+  -y, --yes             Do not ask for confirmation
+
+Logs for quiet runs: build.log, install.log, rollback.log under the output root.
+
 Environment:
   P2CODE_VERSION        Override the computed version
   P2CODE_OUT            Output and backup root (default ~/.p2code)
   P2CODE_APPS_DIR       Where the desktop app lives (default /Applications)
+  P2CODE_VERBOSE=1      Same as --verbose
 EOF
 }
 
@@ -127,6 +133,7 @@ cmd_build() {
   local build_dir="$OUT_ROOT/builds/$version"
   [[ ! -e "$build_dir" ]] || die "$build_dir already exists."
   mkdir -p "$build_dir"
+  init_step_log "$OUT_ROOT/build.log"
 
   log "Building p2code $version (base $(git rev-parse --short HEAD))"
   trap restore_generated_files EXIT
@@ -138,17 +145,10 @@ cmd_build() {
   mkdir -p "$build_dir/resource-monitor"
   cp -R "$monitor_src/." "$build_dir/resource-monitor/"
 
-  log "Aligning package versions"
-  node scripts/update-release-package-versions.ts "$version"
-
-  log "Building server, web client and desktop bundle"
-  vp run build:desktop
-
-  log "Building server single-executable (Node $sea_node)"
-  VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --verbose
-
-  log "Packaging CLI archive"
-  node scripts/build-cli-archive.ts \
+  step "Aligning package versions" node scripts/update-release-package-versions.ts "$version"
+  step "Building server, web client and desktop bundle" vp run build:desktop
+  step "Building server executable (Node $sea_node)" env VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --verbose
+  step "Packaging CLI archive" node scripts/build-cli-archive.ts \
     --platform mac \
     --arch arm64 \
     --version "$version" \
@@ -157,11 +157,9 @@ cmd_build() {
   local archive="$build_dir/cli/t3-$version-darwin-arm64.tar.gz"
   [[ -f "$archive" ]] || die "Expected archive $archive was not produced."
 
-  log "Smoke-testing CLI archive"
-  node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version"
+  step "Smoke-testing CLI archive" node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version"
 
-  log "Packaging desktop app"
-  T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true vp run dist:desktop:artifact \
+  step "Packaging desktop app" env T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true vp run dist:desktop:artifact \
     --platform mac \
     --target zip \
     --arch arm64 \
@@ -174,14 +172,13 @@ cmd_build() {
   zip="$(find "$build_dir/desktop" -maxdepth 1 -name '*.zip' | head -n 1)"
   [[ -n "$zip" ]] || die "No desktop zip was produced in $build_dir/desktop."
 
-  log "Verifying and ad hoc signing desktop app"
+  begin "Verifying and signing desktop app"
   local app_dir="$build_dir/app"
   mkdir -p "$app_dir"
   ditto -x -k "$zip" "$app_dir"
   local app
   app="$(find "$app_dir" -maxdepth 1 -name '*.app' | head -n 1)"
   [[ -n "$app" ]] || die "No .app inside $zip."
-  printf 'app: %s\n' "$(basename "$app")"
   [[ "$(basename "$app" .app)" == "$INSTALLED_APP_NAME" ]] ||
     die "Built app is '$(basename "$app")', not '$INSTALLED_APP_NAME.app'; installing would leave two apps."
   [[ ! -e "$app/Contents/Resources/app-update.yml" ]] || die "Built app has an update feed (app-update.yml); it would auto-update to official builds."
@@ -190,16 +187,18 @@ cmd_build() {
   [[ "$plist_version" == "$version" ]] || die "App reports version $plist_version, expected $version."
   grep -aq 'relay.t3.codes' "$app/Contents/Resources/app.asar" || die "relay.t3.codes is not baked into the desktop bundle."
   grep -arqs 'relay.t3.codes' "$REPO/apps/server/dist" || die "relay.t3.codes is not baked into the server bundle."
-  codesign --force --deep --sign - "$app" || die "Ad hoc signing failed."
-  codesign --verify --deep --strict "$app" || die "Built app failed codesign verification."
+  run codesign --force --deep --sign - "$app" || die "Ad hoc signing failed."
+  run codesign --verify --deep --strict "$app" || die "Built app failed codesign verification."
   [[ "$(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')" == "com.t3tools.t3code" ]] ||
     die "Signed app has an unexpected bundle identifier."
+  end
 
-  log "Staging local release"
+  begin "Staging local release"
   local release_dir="$build_dir/release/v$version"
   mkdir -p "$release_dir"
   cp "$archive" "$release_dir/"
   (cd "$release_dir" && shasum -a 256 "t3-$version-darwin-arm64.tar.gz" > SHA256SUMS)
+  end
 
   git -C "$REPO" rev-parse HEAD > "$build_dir/source-head"
   printf '%s' "$version" > "$OUT_ROOT/current"
@@ -208,6 +207,7 @@ cmd_build() {
 
   log "Build complete: $version"
   printf 'artifacts: %s\n' "$build_dir"
+  printf 'log:       %s\n' "$STEP_LOG"
 }
 
 pick_free_port() {
@@ -218,7 +218,7 @@ quit_app() {
   local pattern
   pattern="$(printf '%s' "$APPS_DIR/$INSTALLED_APP_NAME.app/Contents/MacOS/" | sed 's/[()]/\\&/g')"
   pgrep -f "$pattern" >/dev/null 2>&1 || return 0
-  log "Quitting $INSTALLED_APP_NAME"
+  begin "Quitting $INSTALLED_APP_NAME"
   osascript -e "tell application \"$INSTALLED_APP_NAME\" to quit" >/dev/null 2>&1 || true
   local waited=0
   while pgrep -f "$pattern" >/dev/null 2>&1; do
@@ -229,6 +229,7 @@ quit_app() {
     fi
     [[ "$waited" -lt 45 ]] || die "$INSTALLED_APP_NAME did not quit. Quit it by hand and rerun."
   done
+  end
 }
 
 repoint_launcher() {
@@ -242,7 +243,6 @@ backup_state() {
   local backup="$1"
   mkdir -p "$backup/userdata"
   chmod 700 "$OUT_ROOT/backups" "$backup"
-  log "Backing up state to $backup"
   local db name
   for db in "$T3_HOME"/userdata/*.sqlite; do
     [[ -f "$db" ]] || continue
@@ -250,7 +250,7 @@ backup_state() {
     if [[ "$name" == "server-owner.sqlite" ]]; then
       continue
     fi
-    sqlite3 -cmd ".timeout 30000" "$db" ".backup '$backup/userdata/$name'" || die "Could not back up $name."
+    run sqlite3 -cmd ".timeout 30000" "$db" ".backup '$backup/userdata/$name'" || die "Could not back up $name."
   done
   cp "$T3_HOME"/userdata/*.json "$backup/userdata/" 2>/dev/null || true
   cp "$T3_HOME/runtime/service-state.json" "$backup/" 2>/dev/null || true
@@ -258,7 +258,7 @@ backup_state() {
   readlink "$HOME/.local/bin/t3" > "$backup/t3-symlink" 2>/dev/null || true
   active_version > "$backup/previous-version"
   if [[ -d "$APPS_DIR/$INSTALLED_APP_NAME.app" ]]; then
-    tar -czf "$backup/$INSTALLED_APP_NAME.app.tgz" -C "$APPS_DIR" "$INSTALLED_APP_NAME.app"
+    run tar -czf "$backup/$INSTALLED_APP_NAME.app.tgz" -C "$APPS_DIR" "$INSTALLED_APP_NAME.app" || die "Could not back up the app."
   fi
 }
 
@@ -281,6 +281,8 @@ cmd_install() {
   codesign --verify --deep --strict "$built_app" || die "Built app failed codesign verification."
   (cd "$release_dir/v$version" && shasum -a 256 -c SHA256SUMS >/dev/null) || die "Release checksum mismatch."
 
+  init_step_log "$OUT_ROOT/install.log"
+
   local previous
   previous="$(active_version)"
   [[ -n "$previous" ]] || die "Could not read the active server version from $T3_HOME/runtime/service-state.json."
@@ -296,12 +298,14 @@ cmd_install() {
   confirm "Continue?" || die "Cancelled."
 
   local backup="$OUT_ROOT/backups/$(date +%Y%m%d-%H%M%S)"
+  begin "Backing up state"
   backup_state "$backup"
   printf '%s' "$version" > "$backup/installed-version"
+  end
 
   quit_app
 
-  log "Switching background server to $version"
+  begin "Switching background server to $version"
   local port
   port="$(pick_free_port)"
   python3 -I -m http.server "$port" --bind 127.0.0.1 --directory "$release_dir" >/dev/null 2>&1 &
@@ -313,29 +317,29 @@ cmd_install() {
     [[ "$tries" -lt 25 ]] || die "Local release server did not start."
     sleep 0.2
   done
-  T3CODE_RELEASE_BASE_URL="http://127.0.0.1:$port" "$previous_t3" update "$version" --yes ||
-    die "t3 update failed. Nothing was replaced yet; reopen $INSTALLED_APP_NAME. Backup: $backup"
+  must "t3 update failed. Nothing was replaced yet; reopen $INSTALLED_APP_NAME. Backup: $backup." \
+    env T3CODE_RELEASE_BASE_URL="http://127.0.0.1:$port" "$previous_t3" update "$version" --yes
   kill "$HTTP_PID" 2>/dev/null || true
   trap - EXIT
 
   repoint_launcher "$version"
 
-  log "Waiting for the new server"
   tries=0
   until pgrep -f "runtime/versions/$version/t3" >/dev/null 2>&1; do
     tries=$((tries + 1))
     [[ "$tries" -lt 60 ]] || die "Server $version is not running. Run: scripts/p2code.sh rollback"
     sleep 1
   done
-  "$T3_HOME/runtime/versions/$version/t3" service status || true
+  run "$T3_HOME/runtime/versions/$version/t3" service status || true
+  end
 
-  log "Replacing $INSTALLED_APP_NAME"
+  begin "Replacing and reopening $INSTALLED_APP_NAME"
   rm -rf "$APPS_DIR/$INSTALLED_APP_NAME.app"
   ditto "$built_app" "$APPS_DIR/$INSTALLED_APP_NAME.app"
   xattr -cr "$APPS_DIR/$INSTALLED_APP_NAME.app"
 
-  log "Opening $INSTALLED_APP_NAME"
   open "$APPS_DIR/$INSTALLED_APP_NAME.app"
+  end
 
   if [[ -f "$build_dir/source-head" ]]; then
     cp "$build_dir/source-head" "$OUT_ROOT/installed-head"
@@ -356,18 +360,19 @@ cmd_rollback() {
   [[ -x "$T3_HOME/runtime/versions/$previous/t3" ]] || die "Previous server $previous is no longer on disk."
   printf '\nRestoring from %s\n  server -> %s\n  app    -> %s.app\n\n' "$backup" "$previous" "$INSTALLED_APP_NAME"
   confirm "Continue?" || die "Cancelled."
+  init_step_log "$OUT_ROOT/rollback.log"
 
   quit_app
 
-  log "Switching background server back to $previous"
-  "$T3_HOME/runtime/versions/$previous/t3" update "$previous" --allow-downgrade --yes
+  step "Switching background server back to $previous" "$T3_HOME/runtime/versions/$previous/t3" update "$previous" --allow-downgrade --yes
   repoint_launcher "$previous"
 
   if [[ -f "$backup/$INSTALLED_APP_NAME.app.tgz" ]]; then
-    log "Restoring $INSTALLED_APP_NAME"
+    begin "Restoring $INSTALLED_APP_NAME"
     rm -rf "$APPS_DIR/$INSTALLED_APP_NAME.app"
     tar -xzf "$backup/$INSTALLED_APP_NAME.app.tgz" -C "$APPS_DIR"
     open "$APPS_DIR/$INSTALLED_APP_NAME.app"
+    end
   fi
 
   log "Rolled back"
@@ -383,6 +388,7 @@ main() {
   for arg in "$@"; do
     case "$arg" in
       --yes|-y) ASSUME_YES=1 ;;
+      --verbose|-v) VERBOSE=1 ;;
       *) die "Unknown option: $arg" ;;
     esac
   done
