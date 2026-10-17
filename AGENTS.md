@@ -201,3 +201,65 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## p2code: this private fork
+
+This checkout is `psv2522/p2code`, a private copy of `pingdotgg/t3code` (not a GitHub fork). The owner builds it themselves and runs it as their own T3 Code: custom server as the background service plus a custom desktop app. Changes made here are for the owner's own use.
+
+### Branches and remotes
+
+- `origin` is `git@github.com:psv2522/p2code.git`; `upstream` is `git@github.com:pingdotgg/t3code.git`.
+- Local `main` only mirrors `upstream/main` (fast-forward only). Never commit to it.
+- All custom work lives on `p2code/custom`, always rebased onto `main`. It is pushed with `--force-with-lease`.
+- Carried on top of upstream: the checks-popover scrollbar fix (upstream PR #19404), the lazy Cursor SDK load (upstream PR #19235), and the p2code scripts. Drop a carried commit once upstream ships the equivalent.
+- GitHub Actions are disabled on the fork. Do not re-enable them.
+- Keep custom changes small and local so rebasing stays cheap. A rebase conflict aborts the sync and lists the files; resolve by hand with `cd ~/Personal/Coding/p2code && git rebase main`.
+
+### Commands
+
+`p2code` is a zsh function in `~/.zshrc` that wraps the scripts. Open a new shell or `source ~/.zshrc` to pick it up.
+
+- `p2code update`: sync, rebase, check, push, build, install. Flags: `--sync-only`, `--no-install`, `--no-push`, `--force`, `--yes`, `-v/--verbose`.
+- `p2code build` / `p2code install [--yes]` / `p2code rollback [--yes]` / `p2code version` / `p2code cd` / `p2code help`.
+- Output is one line per step. Full output goes to `~/.p2code/{sync,build,install,rollback}.log`; failures print the log tail and path. `-v` or `P2CODE_VERBOSE=1` shows everything.
+
+Files:
+
+- `scripts/p2code.sh` (build, install, rollback) and `scripts/p2code-lib.sh` (step/log helpers) are tracked on `p2code/custom`.
+- `scripts/p2code-update.sh` (the sync driver) is untracked and hidden through `.git/info/exclude`, so a fresh clone does not have it.
+
+### What `p2code update` does
+
+1. Requires a clean tree and the `p2code/custom` and `main` branches. Adds the `upstream` remote if missing.
+2. Fetches upstream, fast-forwards `main`, rebases `p2code/custom` onto it. Warns if files under `apps/server/src/persistence/Migrations` changed since the installed build.
+3. `vp i`, then runs `provider-cursor` tests and typecheck. A failure stops the run.
+4. Pushes `main` and `p2code/custom` (skipped with `--no-push`).
+5. Stops if `HEAD` equals `~/.p2code/installed-head` (override with `--force`).
+6. Builds, then installs. Inside T3 Code it builds only and tells the owner to run `p2code install`.
+
+### Build
+
+- Version is `<core>-nightly.99<YYMMDD>.<seconds-of-day>`, for example `0.1.1-nightly.99261017.41007`. `<core>` is the base of the newest upstream `v*-nightly.*` tag (fallback `0.1.1`). The `99` prefix sorts above every upstream nightly (`2026xxxx`), so official clients never warn about a server mismatch. The identifier must not have a leading zero (`isExactServiceVersion` rejects it). Keep it a nightly so the app keeps the Nightly name and icon; the installed app is `/Applications/T3 Code (Nightly).app`.
+- Output lands in `~/.p2code/builds/<version>/{cli,desktop,app,release,resource-monitor,source-head}`; `~/.p2code/current` names the latest build.
+- Package versions are aligned with `scripts/update-release-package-versions.ts` and restored afterwards.
+- The server single-executable needs the Node version from `SEA_NODE_VERSION` in `apps/server/vite.config.ts`. The script strips fnm's node from `PATH` because it shadows `VP_NODE_VERSION`.
+- Rust is not installed. The `t3-resource-monitor` binary is copied from the active installed runtime (`T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true`).
+- The desktop app is built without a publish config (`GITHUB_REPOSITORY` and `T3CODE_DESKTOP_UPDATE_REPOSITORY` unset), so there is no `app-update.yml` and it never auto-updates to an official build. The build fails if one appears.
+- The app is ad hoc signed (`codesign --sign -`). macOS may re-prompt for keychain access, T3 Connect may ask to sign in again, and passkeys are unavailable.
+- The repo-root `.env` (gitignored, copied from `.env.example`) bakes the T3 Connect values (`relay.t3.codes`, production Clerk) into the build. The build refuses to run without it, and checks the relay URL is present in the bundles.
+
+### Install and rollback
+
+- Install confirms, then backs up to `~/.p2code/backups/<timestamp>` (mode 700): `userdata/*.sqlite` via `sqlite3 .backup` (not `server-owner.sqlite`, the live server's lock), JSON files, `service-state.json`, the launchd plist, the `~/.local/bin/t3` symlink, the previous version, and the app as a tgz.
+- It quits the app, serves the release directory on a loopback port, touches `~/.t3/runtime/desktop-update-restart` (so the old server keeps its tunnel), and runs `t3 update <version> --yes` with `T3CODE_RELEASE_BASE_URL` pointing at that port. That is the supported path and switches the launchd service `com.t3tools.t3code.service`, which runs `~/.t3/runtime/versions/<ver>/t3 __service-launcher` and spawns `t3 serve`. Then it repoints `~/.local/bin/t3`, waits for the new server, replaces the app in `/Applications` with `ditto`, and reopens it.
+- Rollback switches the server back with `t3 update <previous> --allow-downgrade --yes` and restores the app from the backup tgz. It does not restore databases; copy them from the backup with the server stopped if a migration ran.
+
+### Rules for agents
+
+- Never run `p2code install`, `p2code rollback`, `p2code update` (without `--no-install`), or `t3 update`/service restarts from inside T3 Code. Agent sessions run under the background server that those commands restart and the desktop app they quit. `scripts/p2code.sh in-t3` detects this. Build with `p2code update --no-install` and tell the owner to run `p2code install` in a plain terminal.
+- Never use `sudo`; the scripts refuse to run as root. A root run creates a second T3 installation and root-owned files.
+- Commit before building. The build refuses a dirty tree. Do not run a build while rebasing or switching branches; the build reads the working tree.
+- Do not edit `scripts/p2code*.sh` while a run is in flight. Bash reads scripts incrementally and a mid-run change causes bogus syntax errors. Keep `main "$@"; exit $?` at the end of `p2code.sh` and the outer brace group with `exit 0` in `p2code-update.sh`.
+- Do not add database migrations or change relay contracts (`packages/contracts` relay surface, `infra/relay`) unless the owner asks. Migrations collide with upstream numbering, and the relay is T3's own service.
+- Use `pnpm` and `vp`, not `npm`.
+- Match the owner's commit style (Conventional Commits). Prefer no code comments unless a future editor would be misled without one.
