@@ -327,7 +327,7 @@ export function collectHttpQuotaSources(presentations: Parameters<typeof collect
   );
 }
 
-export function collectLimitAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
+function collectLimitAccountMap(presentations: LimitPresentations) {
   const accounts = new Map<string, LimitAccount>();
   const creditSources = new Map<string, LimitAccount>();
   const hubRedeems = new Map<string, LimitAccount>();
@@ -455,7 +455,26 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       }
     }
   }
-  return [...accounts.values()];
+  return { accounts, resolveKey };
+}
+
+export function collectLimitAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
+  return [...collectLimitAccountMap(presentations).accounts.values()];
+}
+
+export function findProviderLimitAccount(
+  presentations: LimitPresentations,
+  environmentId: EnvironmentId,
+  instanceId: ProviderInstanceId,
+): LimitAccount | undefined {
+  const provider = presentations
+    .get(environmentId)
+    ?.serverConfig?.providers.find(
+      (candidate) => candidate.instanceId === instanceId && candidate.enabled,
+    );
+  if (!provider) return undefined;
+  const { accounts, resolveKey } = collectLimitAccountMap(presentations);
+  return accounts.get(resolveKey(nativeReport(provider)) ?? `${environmentId}:${instanceId}`);
 }
 
 /** Hub accounts whose read failed and that no other report shows as a row, with their names. */

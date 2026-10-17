@@ -100,10 +100,9 @@ const makeSweep = Effect.gen(function* () {
     ),
   );
   yield* forkParked(Stream.runForEach(settings.streamChanges, () => due.invalidate));
-  return Effect.fn("UsageLimitRecoveryWorker.sweep", { attributes: routineSpan })(function* () {
+  const sweep = Effect.fn("UsageLimitRecoveryWorker.sweep", { attributes: routineSpan })(function* () {
     const now = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(now);
-    if (yield* due.isIdle(nowMs)) return;
     const readVersion = yield* due.version;
     const preferences = yield* settings.getSettings;
     const candidates = yield* projections.getLimitRecoveryCandidates({
@@ -145,12 +144,13 @@ const makeSweep = Effect.gen(function* () {
     const wakeAt = yield* projections.getLimitRecoveryWakeAt(now);
     yield* due.record(readVersion, wakeAt ?? Infinity, nowMs);
   });
+  return { sweep, isIdle: due.isIdle };
 });
 
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
-    const sweep = yield* makeSweep;
+    const { sweep, isIdle } = yield* makeSweep;
     const scheduler = yield* Scheduler.Scheduler;
-    yield* scheduler.register("usage-limit-recovery", sweep());
+    yield* scheduler.register("usage-limit-recovery", sweep(), { isIdle });
   }),
 );

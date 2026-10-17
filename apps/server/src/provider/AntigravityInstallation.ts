@@ -46,11 +46,6 @@ import {
   parseAntigravityCliRelease,
   type AntigravityCliReleaseAsset,
 } from "./antigravityCliRelease.ts";
-import { makeAntigravityAcpRuntime } from "./acp/AntigravityAcpSupport.ts";
-import {
-  buildAntigravityAcpSpawnInput,
-  prepareAntigravityProfile,
-} from "./antigravityAuthSupport.ts";
 
 const DRIVER = ProviderDriverKind.make("antigravity");
 const DOWNLOAD_TIMEOUT = "45 minutes";
@@ -752,6 +747,12 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
             fs
               .remove(directory, { recursive: true, force: true })
               .pipe(retryWhileWindowsHoldsHandles, Effect.orDie),
+        );
+        const { makeAntigravityAcpRuntime } = yield* Effect.promise(
+          () => import("./acp/AntigravityAcpSupport.ts"),
+        );
+        const { buildAntigravityAcpSpawnInput, prepareAntigravityProfile } = yield* Effect.promise(
+          () => import("./antigravityAuthSupport.ts"),
         );
         const profile = yield* prepareAntigravityProfile({
           profileDirectory,

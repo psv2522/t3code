@@ -56,6 +56,32 @@ it.effect("does not overlap slow work or hold up another source", () =>
   }).pipe(Effect.provide(Scheduler.layer)),
 );
 
+it.effect("skips idle sources until they report due work", () =>
+  Effect.gen(function* () {
+    const scheduler = yield* Scheduler.Scheduler;
+    const idle = yield* Ref.make(true);
+    const runs = yield* Ref.make(0);
+    const receipts = yield* Queue.unbounded<string>();
+    yield* scheduler.register(
+      "idle",
+      Ref.update(runs, (n) => n + 1).pipe(Effect.andThen(Queue.offer(receipts, "idle"))),
+      { isIdle: () => Ref.get(idle) },
+    );
+    yield* scheduler.register("marker", Queue.offer(receipts, "marker").pipe(Effect.asVoid));
+    assert.equal(yield* Queue.take(receipts), "marker");
+    yield* TestClock.adjust("5 seconds");
+    assert.equal(yield* Queue.take(receipts), "marker");
+    assert.equal(yield* Ref.get(runs), 0);
+    yield* Ref.set(idle, false);
+    yield* TestClock.adjust("5 seconds");
+    assert.deepEqual([yield* Queue.take(receipts), yield* Queue.take(receipts)].sort(), [
+      "idle",
+      "marker",
+    ]);
+    assert.equal(yield* Ref.get(runs), 1);
+  }).pipe(Effect.provide(Scheduler.layer)),
+);
+
 it.effect("unregisters closed sources and interrupts their in-flight work", () =>
   Effect.gen(function* () {
     const scheduler = yield* Scheduler.Scheduler;

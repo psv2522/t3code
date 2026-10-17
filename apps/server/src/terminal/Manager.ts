@@ -51,7 +51,7 @@ import { stripAppImageRuntimeEnv } from "@t3tools/shared/appImageRuntimeEnv";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution, mergePathEntries } from "@t3tools/shared/shell";
 
-import { acpRegistryManagedBinaryDirectories } from "@t3tools/provider-acp-registry/server";
+import { acpRegistryManagedBinaryDirectories } from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";

@@ -4211,6 +4211,7 @@ export default function ChatView(props: ChatViewProps) {
                   usage={{
                     providerInstanceId: activeProviderInstanceId,
                     model: activeUsageModel,
+                    environmentId: providerEnvironmentId ?? null,
                     providers: providerStatuses,
                     sources: serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES,
                     contextWindow: activeContextWindow,

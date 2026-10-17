@@ -1,4 +1,5 @@
 import type {
+  EnvironmentId,
   ProviderInstanceId,
   ServerProvider,
   ServerProviderUsageLimits,
@@ -15,7 +16,9 @@ import {
 import { formatDuration, limitsNotice } from "@t3tools/shared/usageLimitsCopy";
 import { Link } from "@tanstack/react-router";
 import { msg, useGT, useLocale, useMessages } from "gt-react";
-import type { ReactNode } from "react";
+import { useEffect, useEffectEvent, type ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -23,6 +26,9 @@ import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/contex
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
+import { environmentPresentations } from "../../state/presentation";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatContextWindowCompactionMessage } from "./compaction.logic";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -42,6 +48,7 @@ const PACE_LABEL: Record<LimitPace, string> = {
 export interface ThreadDetailsUsageInput {
   readonly providerInstanceId: ProviderInstanceId | null;
   readonly model: string | null;
+  readonly environmentId: EnvironmentId | null;
   readonly providers: readonly ServerProvider[];
   readonly sources: UsageLimitSourceSnapshots;
   readonly contextWindow: ContextWindowSnapshot | null;
@@ -59,12 +66,32 @@ function limitTone(left: number): UsageTone {
 export function ThreadDetailsUsage({
   providerInstanceId,
   model,
+  environmentId,
   providers,
   sources,
 }: Omit<ThreadDetailsUsageInput, "contextWindow">) {
   const gt = useGT();
   const nowMinute = useNowMinute();
   const now = Date.parse(`${nowMinute}:00Z`);
+  const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
+  const connectionPhase =
+    environmentId === null ? undefined : presentations.get(environmentId)?.connection.phase;
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const refreshLimits = useEffectEvent((id: EnvironmentId) => {
+    void refreshUsageLimits(
+      id,
+      () => refreshProviders({ environmentId: id, input: { limitsOnly: true } }),
+      true,
+    ).catch(() => {});
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes limits when the panel's environment connects
+  useEffect(() => {
+    if (environmentId !== null && providerInstanceId !== null && connectionPhase === "connected") {
+      refreshLimits(environmentId);
+    }
+  }, [environmentId, providerInstanceId, connectionPhase]);
   const resolved = resolveThreadDetailsLimits(providerInstanceId, model, providers, sources, now);
   const quotas = resolveThreadHttpQuotas(providerInstanceId, sources);
   if (!resolved && quotas.length === 0) return null;
