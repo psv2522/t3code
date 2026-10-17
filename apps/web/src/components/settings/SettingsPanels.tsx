@@ -73,6 +73,7 @@ import {
 } from "../../modelSelection";
 import { useTextGenerationTargets } from "../../textGenerators";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
+import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { isMacPlatform } from "../../lib/utils";
 import {
   useEnvironmentProviders,
@@ -425,7 +426,7 @@ function AboutVersionSection() {
           }
         />
       ) : null}
-      {hasDesktopBridge ? <CliCommandSettingsRow /> : null}
+      {hasDesktopBridge && !isLocalEnvironmentDisabled() ? <CliCommandSettingsRow /> : null}
       {switchChannel === null ? null : (
         <UpdateTrackSwitchDialog channel={switchChannel} onClose={() => setSwitchChannel(null)} />
       )}

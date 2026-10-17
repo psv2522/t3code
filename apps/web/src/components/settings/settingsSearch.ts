@@ -886,6 +886,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/about",
     searchTerms: ["cli terminal shell path install command line"],
     desktopOnly: true,
+    localEnvironmentOnly: true,
   },
   {
     id: "mobile-app",
@@ -1235,13 +1236,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/access",
     targetId: "connections-environment",
     searchTerms: ["machine glyph sidebar mac mini studio laptop desktop server cloud vm"],
-  },
-  {
-    id: "local-environment",
-    title: "Local environment",
-    to: "/settings/connections",
-    searchTerms: ["turn off on disable enable local server agents remote only restart"],
-    desktopOnly: true,
   },
   {
     id: "network-access",

@@ -41,7 +41,7 @@ export function HostedEmptyState() {
             </EmptyTitle>
             <EmptyDescription>
               {localEnvironmentOff
-                ? "Turn it back on, or connect a different computer."
+                ? "Connect a different computer."
                 : cloudEnabled
                   ? "Your agents run on your computer."
                   : "Your agents run on your computer. Start T3 Code there first."}
