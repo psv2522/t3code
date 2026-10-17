@@ -106,7 +106,7 @@ export default mergeConfig(
               ...(packExecutableTargets ? { targets: packExecutableTargets } : {}),
               seaConfig: {
                 useCodeCache: seaCodeCacheUsable,
-                execArgv: ["--max-semi-space-size=4"],
+                execArgv: ["--max-semi-space-size=4", "--optimize-for-size"],
               },
             },
             minify: {
