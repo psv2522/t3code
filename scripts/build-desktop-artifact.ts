@@ -960,6 +960,7 @@ interface ResolvedBuildOptions {
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslRuntime: string | undefined;
+  readonly clientOnly: boolean;
 }
 
 interface StagePackageJson {
@@ -1654,6 +1655,7 @@ const BuildEnvConfig = Config.all({
   mockUpdates: Config.Boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.String("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
   wslRuntime: Config.String("T3CODE_DESKTOP_WSL_RUNTIME").pipe(Config.option),
+  clientOnly: Config.Boolean("T3CODE_DESKTOP_CLIENT_ONLY").pipe(Config.withDefault(false)),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1760,6 +1762,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     mockUpdates,
     mockUpdateServerPort,
     wslRuntime,
+    clientOnly: env.clientOnly,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -2211,7 +2214,11 @@ export const copyDirectoryPreservingSymlinks = Effect.fn("copyDirectoryPreservin
 );
 
 export const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSelfContained")(
-  function* (input: { readonly asarPath: string; readonly verbose: boolean }) {
+  function* (input: {
+    readonly asarPath: string;
+    readonly verbose: boolean;
+    readonly clientOnly?: boolean;
+  }) {
     // A PR preview's bundle is untrusted and this job may hold signing secrets, so never run it.
     if (yield* Config.Boolean("T3CODE_DESKTOP_UNTRUSTED_BUNDLE").pipe(Config.withDefault(false))) {
       yield* Effect.log(
@@ -2245,6 +2252,23 @@ export const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBund
           output: `Refusing to report success: ${candidate} is visible from the probe directory, so bare imports could resolve outside the packaged tree. Remove or rename it, or point TMPDIR somewhere without one.`,
         });
       }
+    }
+
+    if (input.clientOnly) {
+      for (const file of [
+        "apps/desktop/dist-electron/boot.cjs",
+        "apps/desktop/dist-electron/main.cjs",
+        "apps/server/dist/client/index.html",
+      ]) {
+        const entryPoint = path.join(probeApp, file);
+        if (!(yield* fs.exists(entryPoint))) {
+          return yield* new BundleNotSelfContainedError({
+            exitCode: -1,
+            output: `Expected the client entry at ${entryPoint}.`,
+          });
+        }
+      }
+      return;
     }
 
     const entryPoint = path.join(probeApp, "apps/server/dist/bin.mjs");
@@ -2786,9 +2810,17 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     | undefined,
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
+  clientOnly = false,
 ) {
   const buildConfig: Record<string, unknown> = {
-    afterPack: (yield* Path.Path).join(yield* RepoRoot, "scripts/prepare-server-compile-cache.cjs"),
+    ...(clientOnly
+      ? {}
+      : {
+          afterPack: (yield* Path.Path).join(
+            yield* RepoRoot,
+            "scripts/prepare-server-compile-cache.cjs",
+          ),
+        }),
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
     artifactName: "T3-Code-${version}-${arch}.${ext}",
@@ -3564,7 +3596,11 @@ export class MacPackagedAppMissingError extends Schema.TaggedError<MacPackagedAp
 }
 
 export const validateMacPackagedPayload = Effect.fn("desktopArtifact.validateMacPackagedPayload")(
-  function* (input: { readonly stageDistDir: string; readonly verbose?: boolean }) {
+  function* (input: {
+    readonly stageDistDir: string;
+    readonly verbose?: boolean;
+    readonly clientOnly?: boolean;
+  }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const asarPaths: string[] = [];
@@ -3582,7 +3618,11 @@ export const validateMacPackagedPayload = Effect.fn("desktopArtifact.validateMac
       return yield* new MacPackagedAppMissingError({ stageDistDir: input.stageDistDir });
     }
     for (const asarPath of asarPaths) {
-      yield* verifyPackagedBundleIsSelfContained({ asarPath, verbose: input.verbose ?? false });
+      yield* verifyPackagedBundleIsSelfContained({
+        asarPath,
+        verbose: input.verbose ?? false,
+        clientOnly: input.clientOnly ?? false,
+      });
     }
     yield* Effect.log(
       `[desktop-artifact] Validated macOS payload (${String(asarPaths.length)} app bundle(s)).`,
@@ -3814,7 +3854,13 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     );
   }
   if (options.platform !== "win") {
-    yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+    const serverDistSource = options.clientOnly
+      ? path.join(distDirs.serverDist, "client")
+      : distDirs.serverDist;
+    const serverDistTarget = options.clientOnly
+      ? path.join(stageAppDir, "apps/server/dist/client")
+      : path.join(stageAppDir, "apps/server/dist");
+    yield* fs.copy(serverDistSource, serverDistTarget);
   }
   yield* stageResourceMonitor({
     repoRoot,
@@ -3896,7 +3942,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
 
   const stageDependencies =
-    options.platform === "win"
+    options.platform === "win" || options.clientOnly
       ? { ...resolvedDesktopRuntimeDependencies }
       : resolveMergedStageDependencies({
           platform: options.platform,
@@ -3943,6 +3989,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
         : undefined,
       bundlesWslRuntime({ platform: options.platform, runtimeArchivePath: options.wslRuntime }),
       options.arch,
+      options.clientOnly,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -4124,7 +4171,11 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
   // x64 builds on arm64 runners; the arm64 check covers the shared JS bundle.
   if (options.platform === "mac" && options.arch === "arm64" && hostPlatform === "darwin") {
-    yield* validateMacPackagedPayload({ stageDistDir, verbose: options.verbose });
+    yield* validateMacPackagedPayload({
+      stageDistDir,
+      verbose: options.verbose,
+      clientOnly: options.clientOnly,
+    });
   }
 
   const copiedArtifacts = yield* copyDesktopBuildArtifacts(

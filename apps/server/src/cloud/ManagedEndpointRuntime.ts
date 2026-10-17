@@ -107,7 +107,7 @@ const isRotatingFileSinkError = Schema.is(RotatingFileSinkError);
 
 const RELAY_RESTART_STABLE_UPTIME_MS = 30_000;
 const RELAY_RESTART_BACKOFF_BASE_MS = 1_000;
-const RELAY_RESTART_BACKOFF_MAX_MS = 60_000;
+const RELAY_RESTART_BACKOFF_MAX_MS = 5 * 60_000;
 // Newly created tunnels can fail authorization briefly while Cloudflare propagates their token.
 const TUNNEL_AUTHORIZATION_FAILURES_BEFORE_RECOVERY = 4;
 // Unknown rejection wording can leave a dead tunnel unconnected; periodically request recovery.
@@ -354,9 +354,10 @@ export const make = Effect.gen(function* () {
         return;
       }
       const uptimeMillis = (yield* Clock.currentTimeMillis) - connector.startedAtMillis;
+      const registered = yield* Deferred.isDone(connector.registered);
       // Back off outside the semaphore so config changes remain responsive; recheck config afterwards.
       const restartDelayMillis = yield* Ref.modify(restartDelayRef, (current) => {
-        if (uptimeMillis >= RELAY_RESTART_STABLE_UPTIME_MS) {
+        if (registered && uptimeMillis >= RELAY_RESTART_STABLE_UPTIME_MS) {
           return [0, 0];
         }
         return [

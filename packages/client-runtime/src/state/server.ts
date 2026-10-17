@@ -1644,6 +1644,14 @@ export function createServerEnvironmentAtoms<R, E>(
           ]),
       },
     }),
+    p2codeUpdate: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:p2code-update",
+      tag: WS_METHODS.serverP2codeUpdate,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.action}`,
+      },
+    }),
     updateProvider: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-provider",
       tag: WS_METHODS.serverUpdateProvider,

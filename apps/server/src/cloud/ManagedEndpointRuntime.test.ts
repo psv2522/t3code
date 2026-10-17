@@ -1163,6 +1163,41 @@ describe("CloudManagedEndpointRuntime", () => {
       }),
   );
 
+  it.effect(
+    "backs off repeated exits even when an offline connector runs for over 30 seconds",
+    () =>
+      Effect.gen(function* () {
+        const exits = [
+          yield* Deferred.make<ChildProcessSpawner.ExitCode>(),
+          yield* Deferred.make<ChildProcessSpawner.ExitCode>(),
+        ];
+        const spawned: number[] = [];
+        const spawner = ChildProcessSpawner.make(() =>
+          Effect.sync(() => {
+            const index = spawned.length;
+            spawned.push(index);
+            return makeHandle({
+              pid: 400 + index,
+              onKill: () => {},
+              exitCode: exits[index] ? Deferred.await(exits[index]) : Effect.never,
+            });
+          }),
+        );
+        const runtime = yield* buildCloudManagedEndpointRuntime(spawner);
+        yield* runtime.applyConfig({ providerKind: "cloudflare_tunnel", connectorToken: "token" });
+        yield* TestClock.adjust(Duration.seconds(31));
+        yield* Deferred.succeed(exits[0]!, ChildProcessSpawner.ExitCode(1));
+        yield* TestClock.adjust(Duration.zero);
+        expect(spawned).toHaveLength(2);
+        yield* TestClock.adjust(Duration.seconds(31));
+        yield* Deferred.succeed(exits[1]!, ChildProcessSpawner.ExitCode(1));
+        yield* TestClock.adjust(Duration.zero);
+        expect(spawned).toHaveLength(2);
+        yield* TestClock.adjust(Duration.seconds(1));
+        expect(spawned).toHaveLength(3);
+      }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("serializes concurrent connector config changes", () =>
     Effect.gen(function* () {
       const spawned: Array<number> = [];

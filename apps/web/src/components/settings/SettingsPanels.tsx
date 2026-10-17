@@ -74,6 +74,7 @@ import {
 import { useTextGenerationTargets } from "../../textGenerators";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
+import { checkAndStartP2codeUpdate, useP2codeAvailable } from "../sidebar/p2codeUpdate";
 import { isMacPlatform } from "../../lib/utils";
 import {
   useEnvironmentProviders,
@@ -165,6 +166,7 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
+  const p2codeAvailable = useP2codeAvailable();
   const [switchChannel, setSwitchChannel] = useState<DesktopUpdateChannel | null>(null);
   const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
   const { environments } = useEnvironments();
@@ -258,6 +260,13 @@ function AboutVersionSection() {
       return;
     }
 
+    if (p2codeAvailable) {
+      if (isUpdateActionPending) return;
+      setIsUpdateActionPending(true);
+      void checkAndStartP2codeUpdate().finally(() => setIsUpdateActionPending(false));
+      return;
+    }
+
     if (typeof bridge.checkForUpdate !== "function") return;
     void checkProviderUpdates();
     void bridge
@@ -288,10 +297,13 @@ function AboutVersionSection() {
   };
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
-  const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
+  const buttonTooltip =
+    updateState && !(p2codeAvailable && action === "none")
+      ? getDesktopUpdateButtonTooltip(updateState)
+      : null;
   const buttonDisabled =
     action === "none"
-      ? !canCheckForUpdate(updateState)
+      ? !(p2codeAvailable || canCheckForUpdate(updateState))
       : isDesktopUpdateButtonDisabled(updateState);
 
   const actionLabel: Record<string, string> = { download: "Download", install: "Install" };

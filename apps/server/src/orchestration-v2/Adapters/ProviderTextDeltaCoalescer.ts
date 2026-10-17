@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import { textSnapshotFlushDelayMs } from "@t3tools/provider-core/server/textSnapshotFlush";
 
 export interface ProviderTextDeltaUpdate {
   readonly turnId: string;
@@ -102,25 +103,27 @@ export const makeProviderTextDeltaCoalescer = Effect.fn("makeProviderTextDeltaCo
           ? Effect.void
           : Effect.uninterruptible(
               Effect.gen(function* () {
-                const shouldSchedule = yield* flushLock.withPermit(
+                const scheduleDelayMs = yield* flushLock.withPermit(
                   Effect.gen(function* () {
-                    yield* Ref.update(buffered, (current) => {
+                    const textLength = yield* Ref.modify(buffered, (current) => {
                       const key = providerTextBufferKey(turnId, itemId);
                       const existing = current.get(key);
                       const next = new Map(current);
-                      next.set(key, {
-                        turnId,
-                        itemId,
-                        text: `${existing?.text ?? ""}${delta}`,
-                        dirty: true,
-                      });
-                      return next;
+                      const text = `${existing?.text ?? ""}${delta}`;
+                      next.set(key, { turnId, itemId, text, dirty: true });
+                      return [text.length, next];
                     });
-                    return yield* Ref.modify(flushScheduled, (scheduled) => [!scheduled, true]);
+                    const shouldSchedule = yield* Ref.modify(flushScheduled, (scheduled) => [
+                      !scheduled,
+                      true,
+                    ]);
+                    return shouldSchedule
+                      ? textSnapshotFlushDelayMs(input.flushIntervalMs, textLength)
+                      : null;
                   }),
                 );
-                if (shouldSchedule) {
-                  yield* Effect.sleep(Duration.millis(Math.max(1, input.flushIntervalMs))).pipe(
+                if (scheduleDelayMs !== null) {
+                  yield* Effect.sleep(Duration.millis(scheduleDelayMs)).pipe(
                     Effect.andThen(flushDirty),
                     Effect.interruptible,
                     Effect.forkIn(coalescerScope),
