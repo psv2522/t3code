@@ -43,7 +43,7 @@ if (
     const { runServiceLauncherCli } = await import("./cli/serviceLauncher.ts");
     await runServiceLauncherCli();
   } else {
-    // The launcher keeps it to start the server; everything else drops it so children run without the allocator mode's wall-time cost.
+    // The launcher sets this on the server it spawns; dropping it keeps the server's savings while its children start without the wall-time cost.
     delete process.env.MallocSpaceEfficient;
     const { runCliCommand } = await loadCliMain();
     await runCliCommand();
