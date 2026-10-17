@@ -174,7 +174,7 @@ cmd_build() {
 
   step "Smoke-testing CLI archive" node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version"
 
-  step "Packaging desktop app" env T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true vp run dist:desktop:artifact \
+  step "Packaging desktop app" env T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true T3CODE_DESKTOP_CLIENT_ONLY=true vp run dist:desktop:artifact \
     --platform "$TARGET_PLATFORM" \
     --target "$DESKTOP_TARGET" \
     --arch "$TARGET_ARCH" \
