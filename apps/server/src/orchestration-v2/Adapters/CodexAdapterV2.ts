@@ -4,6 +4,10 @@ import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
 import {
+  CodexAppServerClientFactory,
+  type CodexAppServerClientFactoryShape,
+} from "./CodexAppServerClientFactory.ts";
+import {
   mcpToolPresentation,
   type McpToolPresentation,
 } from "../../provider/CodexToolPresentation.ts";
@@ -1362,25 +1366,7 @@ type CodexSubAgentActivityItem = Extract<
   { readonly type: "subAgentActivity" }
 >;
 
-export interface CodexAppServerClientFactoryShape {
-  readonly open: (input: {
-    readonly instanceId: ProviderInstanceId;
-    readonly threadId: ThreadId;
-    readonly providerSessionId: OrchestrationV2ProviderSession["id"];
-    readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
-    readonly settings: CodexSettings;
-    readonly environment: NodeJS.ProcessEnv;
-  }) => Effect.Effect<
-    CodexClient.CodexAppServerClient["Service"],
-    ProviderAdapter.ProviderAdapterOpenSessionError,
-    Scope.Scope
-  >;
-}
-
-export class CodexAppServerClientFactory extends Context.Service<
-  CodexAppServerClientFactory,
-  CodexAppServerClientFactoryShape
->()("t3/orchestration-v2/Adapters/CodexAdapterV2/CodexAppServerClientFactory") {}
+export { CodexAppServerClientFactory, type CodexAppServerClientFactoryShape };
 
 /** MCP startup grace in milliseconds; the 1 s default excludes cold npx/uvx servers from the first model request. */
 export const CODEX_THREAD_CONFIG = {

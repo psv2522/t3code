@@ -29,11 +29,6 @@ import * as EffectAcpErrors from "effect-acp/errors";
 
 import * as ServerConfig from "../config.ts";
 import { openZipArchive } from "../zipArchive.ts";
-import { makeAntigravityAcpRuntime } from "./acp/AntigravityAcpSupport.ts";
-import {
-  buildAntigravityAcpSpawnInput,
-  prepareAntigravityProfile,
-} from "./antigravityAuthSupport.ts";
 import {
   resolveAntigravityReleaseAsset,
   type AntigravityReleaseAsset,
@@ -369,6 +364,12 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
               }),
               Effect.orDie,
             ),
+        );
+        const { makeAntigravityAcpRuntime } = yield* Effect.promise(
+          () => import("./acp/AntigravityAcpSupport.ts"),
+        );
+        const { buildAntigravityAcpSpawnInput, prepareAntigravityProfile } = yield* Effect.promise(
+          () => import("./antigravityAuthSupport.ts"),
         );
         const profile = yield* prepareAntigravityProfile({
           profileDirectory,
