@@ -33,7 +33,7 @@ function run(argv) {
     if (pressed && !active && keyDowns() === idleKeyDowns) console.log("trigger");
     active = pressed;
     if ((flags & both) === 0) idleKeyDowns = keyDowns();
-    delay(0.05);
+    delay(0.12);
   }
   return "orphaned";
 }`;

@@ -69,7 +69,7 @@ export const DEFAULT_MAIN_WINDOW_SIZE = {
 } as const;
 
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
-  localEnvironmentEnabled: true,
+  localEnvironmentEnabled: false,
   linuxPasswordStore: DEFAULT_LINUX_PASSWORD_STORE,
   mainWindowBounds: null,
   mainWindowMaximized: false,
@@ -225,7 +225,7 @@ function normalizeDesktopSettingsDocument(
     (parsed.wslBackendEnabled === undefined && parsed.wslMode === "wsl");
 
   return {
-    localEnvironmentEnabled: parsed.localEnvironmentEnabled !== false,
+    localEnvironmentEnabled: parsed.localEnvironmentEnabled === true,
     linuxPasswordStore: normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore),
     mainWindowBounds,
     mainWindowMaximized: mainWindowBounds !== null && parsed.mainWindowMaximized === true,
@@ -490,6 +490,11 @@ export const make = Effect.gen(function* () {
   const settingsRef = yield* SynchronizedRef.make(environment.defaultDesktopSettings);
   // Writing over a settings file we could not read would erase the preferences it holds.
   const persistenceEnabled = yield* Ref.make(true);
+  const localEnvironmentAvailable = environment.isPackaged
+    ? yield* fileSystem.exists(environment.backendEntryPath).pipe(Effect.orElseSucceed(() => false))
+    : true;
+  const withLocalEnvironmentAvailability = (settings: DesktopSettings) =>
+    localEnvironmentAvailable ? settings : setLocalEnvironmentEnabled(settings, false);
 
   const updateInMemory = (update: (settings: DesktopSettings) => DesktopSettings) =>
     SynchronizedRef.modify(settingsRef, (settings) => {
@@ -547,7 +552,10 @@ export const make = Effect.gen(function* () {
           ),
         ),
       );
-      return yield* SynchronizedRef.setAndGet(settingsRef, settings);
+      return yield* SynchronizedRef.setAndGet(
+        settingsRef,
+        withLocalEnvironmentAvailability(settings),
+      );
     }).pipe(Effect.withSpan("desktop.settings.load")),
     setMainWindowBounds: Effect.fn("desktop.settings.setMainWindowBounds")(
       function* (bounds, isMaximized) {
@@ -596,7 +604,9 @@ export const make = Effect.gen(function* () {
       function* (enabled) {
         yield* Effect.annotateCurrentSpan({ enabled });
 
-        return yield* persist((settings) => setLocalEnvironmentEnabled(settings, enabled));
+        return yield* persist((settings) =>
+          localEnvironmentAvailable ? setLocalEnvironmentEnabled(settings, enabled) : settings,
+        );
       },
     ),
     applyWslWindowsFallback: persist(applyWslWindowsFallback).pipe(

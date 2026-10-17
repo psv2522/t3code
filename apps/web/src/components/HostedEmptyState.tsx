@@ -42,7 +42,7 @@ export function HostedEmptyState() {
             </EmptyTitle>
             <EmptyDescription>
               {localEnvironmentOff ? (
-                <T>Turn it back on, or connect a different computer.</T>
+                <T>Connect a different computer.</T>
               ) : cloudEnabled ? (
                 <T>Your agents run on your computer.</T>
               ) : (

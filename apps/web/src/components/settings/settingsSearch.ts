@@ -1381,13 +1381,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("machine glyph sidebar mac mini studio laptop desktop server cloud vm")],
   },
   {
-    id: "local-environment",
-    title: msg("Local environment"),
-    to: "/settings/connections",
-    searchTerms: [msg("turn off on disable enable local server agents remote only restart")],
-    desktopOnly: true,
-  },
-  {
     id: "network-access",
     title: msg("Network access"),
     to: "/settings/access",

@@ -44,7 +44,6 @@ import { settingsScopeEnvironmentLabel } from "./settingsScopeAxis";
 import { useAccessEnvironment } from "./useAccessEnvironment";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { ManagedByOrganization } from "../ManagedPolicy";
-import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { useSearchableSetting } from "./settingsSearch";
 import { ConnectDeviceApprovalSettings } from "./ConnectDeviceApprovalSettings";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
@@ -1827,11 +1826,6 @@ function ConnectionsSettingsContent({
 
   return (
     <SettingsPageContainer>
-      {desktopBridge ? (
-        <SettingsSection id="this-app" title={gt("This app")}>
-          <LocalEnvironmentSetting />
-        </SettingsSection>
-      ) : null}
       <SettingsSection
         {...searchableSetting("remote-environments")}
         title={gt("Environments")}
