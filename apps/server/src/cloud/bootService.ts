@@ -168,6 +168,8 @@ export function renderBootServicePlist(
     `    <string>${escapeXmlText(plan.baseDir)}</string>`,
     `    <key>${BOOT_SERVICE_UNIT_ENV}</key>`,
     `    <string>${BOOT_SERVICE_PLIST_FILE}</string>`,
+    `    <key>MallocSpaceEfficient</key>`,
+    `    <string>1</string>`,
     `  </dict>`,
     `  <key>WorkingDirectory</key>`,
     `  <string>${escapeXmlText(options.homeDir)}</string>`,
