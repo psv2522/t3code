@@ -89,6 +89,7 @@ describe("WSL IPC", () => {
     const layer = Layer.mergeAll(
       DesktopAppSettings.layerTest({
         ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+        localEnvironmentEnabled: true,
         wslBackendEnabled: false,
         wslOnly: false,
       }),
@@ -126,6 +127,7 @@ describe("WSL IPC", () => {
     const layer = Layer.mergeAll(
       DesktopAppSettings.layerTest({
         ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+        localEnvironmentEnabled: true,
         wslBackendEnabled: true,
         wslOnly: true,
       }),
