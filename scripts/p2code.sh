@@ -10,9 +10,9 @@ SEA_NODE_VERSION="26.8.2"
 TARGET_PLATFORM="mac"
 TARGET_ARCH="arm64"
 DESKTOP_TARGET="dir"
-KEEP_BUILDS=3
-KEEP_BACKUPS=3
-KEEP_RUNTIME_VERSIONS=3
+KEEP_BUILDS=1
+KEEP_BACKUPS=1
+KEEP_RUNTIME_VERSIONS=1
 DRY_RUN=0
 VERSION_FILES=(
   apps/server/package.json
@@ -32,7 +32,7 @@ Usage: scripts/p2code.sh <command> [options]
   install [--yes]       Back up, then switch the background server and desktop app to the latest build
   all [--yes]           build, then install
   rollback [--yes]      Restore the app and background server from the latest backup
-  prune [--dry-run]     Delete old builds, backups and downloaded server versions (runs after install)
+  prune [--dry-run]     Delete old builds, backups and downloaded server versions (install runs it)
   version               Print the version the next build would use
 
 Options:
@@ -324,7 +324,7 @@ cmd_install() {
   printf '  - switch the background server %s -> %s (restarts it; running agent turns and terminals stop)\n' "$previous" "$version"
   printf '  - replace %s/%s.app with the new build and reopen it\n' "$APPS_DIR" "$INSTALLED_APP_NAME"
   printf '  - expect to sign in to T3 Connect again if macOS rejects the old keychain entry\n'
-  printf '  - afterwards, delete builds, backups and downloaded server versions beyond the newest %s (p2code prune --dry-run lists them)\n\n' "$KEEP_BUILDS"
+  printf '  - after the backup and again at the end, delete older builds, backups and downloaded server versions, keeping what rollback needs (p2code prune --dry-run lists them)\n\n'
   confirm "Continue?" || die "Cancelled."
 
   local backup="$OUT_ROOT/backups/$(date +%Y%m%d-%H%M%S)"
@@ -332,6 +332,7 @@ cmd_install() {
   backup_state "$backup"
   printf '%s' "$version" > "$backup/installed-version"
   end
+  prune_all || true
 
   quit_app
 
