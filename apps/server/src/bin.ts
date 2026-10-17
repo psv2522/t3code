@@ -18,6 +18,14 @@ if (
   // Guard sockets before either dispatch path can load outbound-capable modules.
   const { ignoreMacosTypeOfServiceEinval } = await import("./outboundHttp.ts");
   ignoreMacosTypeOfServiceEinval();
+  // The service plist sets this for the launcher to pass to the server.
+  // libmalloc reads it when a process starts, so dropping it here keeps the
+  // server's own savings while its children (agents, terminals, git, the ACP
+  // bridges) start without the allocator mode's wall-time cost. The launcher
+  // keeps it: it is what starts the server.
+  if (command !== "__service-launcher") {
+    delete process.env.MallocSpaceEfficient;
+  }
   if (command === "__managed-chatgpt-token") {
     const { runManagedChatGptTokenCli } = await import("./cli/managedChatGptToken.ts");
     await runManagedChatGptTokenCli(process.argv.slice(3));
