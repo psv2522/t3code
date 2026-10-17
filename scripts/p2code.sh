@@ -100,6 +100,11 @@ cmd_build() {
   require_cmd codesign
 
   cd "$REPO"
+  local clean_path sea_node
+  clean_path="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/fnm_multishells/' | paste -sd: -)"
+  export PATH="$HOME/.local/share/vite-plus/bin:$clean_path"
+  sea_node="$(sed -n 's/^const SEA_NODE_VERSION = "\([^"]*\)";.*/\1/p' apps/server/vite.config.ts | head -n 1)"
+  sea_node="${sea_node:-$SEA_NODE_VERSION}"
   [[ -f .env ]] || die "Missing $REPO/.env. Run: cp .env.example .env"
   grep -q '^T3CODE_RELAY_URL=https://' .env || die ".env has no T3CODE_RELAY_URL, so T3 Connect would be disabled."
   grep -q '^T3CODE_CLERK_PUBLISHABLE_KEY=.' .env || die ".env has no T3CODE_CLERK_PUBLISHABLE_KEY, so T3 Connect would be disabled."
@@ -138,8 +143,8 @@ cmd_build() {
   log "Building server, web client and desktop bundle"
   vp run build:desktop
 
-  log "Building server single-executable (Node $SEA_NODE_VERSION)"
-  VP_NODE_VERSION="$SEA_NODE_VERSION" node apps/server/scripts/cli.ts build-exe --verbose
+  log "Building server single-executable (Node $sea_node)"
+  VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --verbose
 
   log "Packaging CLI archive"
   node scripts/build-cli-archive.ts \
