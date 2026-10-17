@@ -317,6 +317,9 @@ cmd_install() {
     [[ "$tries" -lt 25 ]] || die "Local release server did not start."
     sleep 0.2
   done
+  # Without this marker the old server deletes its tunnel on shutdown and the new one waits 1-2 minutes for a replacement to route.
+  mkdir -p "$T3_HOME/runtime"
+  : > "$T3_HOME/runtime/desktop-update-restart"
   must "t3 update failed. Nothing was replaced yet; reopen $INSTALLED_APP_NAME. Backup: $backup." \
     env T3CODE_RELEASE_BASE_URL="http://127.0.0.1:$port" "$previous_t3" update "$version" --yes
   kill "$HTTP_PID" 2>/dev/null || true
