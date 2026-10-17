@@ -230,7 +230,10 @@ function layerTest(input: {
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
 }) {
-  let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
+  let desktopSettings = input.desktopSettings ?? {
+    ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+    localEnvironmentEnabled: true,
+  };
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
     get: Effect.sync(() => desktopSettings),
     load: Effect.sync(() => desktopSettings),

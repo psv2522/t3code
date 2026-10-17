@@ -32,7 +32,6 @@ import {
   resolveLocalVersionStatusLabel,
 } from "./ConnectionsSettings.logic";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
-import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
@@ -1074,7 +1073,6 @@ export function ConnectionsSettings() {
               ) : null
             }
           >
-            <LocalEnvironmentSetting />
             {canManageLocalBackend ? (
               <SettingsRow
                 title="Version"
@@ -1471,7 +1469,6 @@ export function ConnectionsSettings() {
             title="No environment selected"
             description="Connect an environment to view its settings and access."
           />
-          <LocalEnvironmentSetting />
           {canReadRelay || canManageRelay ? (
             <CloudLinkRow canReadRelay={canReadRelay} canManageRelay={canManageRelay} />
           ) : null}
