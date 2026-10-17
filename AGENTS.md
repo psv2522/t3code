@@ -236,15 +236,15 @@ Files:
 5. Stops if `HEAD` equals `~/.p2code/installed-head` (override with `--force`).
 6. Builds, then installs. Inside T3 Code it builds only and tells the owner to run `p2code install`.
 
-### Sidebar "Check for updates"
+### Check for updates
 
-In the desktop app the sidebar update button is wired to p2code (`apps/desktop/src/ipc/methods/p2code.ts`, `apps/web/src/components/sidebar/p2codeUpdate.ts`, exposed as `desktopBridge.p2code`). It is enabled when `~/.p2code/repo` exists; every `p2code build` writes it.
+In the desktop app the sidebar update button, Settings → About "Check for Updates" and the native "Check for Updates…" menu item run the p2code check (`apps/desktop/src/ipc/methods/p2code.ts`, `apps/web/src/components/sidebar/p2codeUpdate.ts`, exposed as `desktopBridge.p2code`) whenever `~/.p2code/repo` exists; every `p2code build` writes it. Without it the menu item shows the stock "Updates unavailable" dialog.
 
 - Click runs `scripts/p2code-update.sh --check`: fetches `upstream/main` and prints JSON (`upstreamCommits`, `localChanges`, `dirty`). `localChanges` means `p2code/custom` differs from `~/.p2code/installed-head`. The check changes nothing but remote-tracking refs.
 - Nothing pending: an "up to date" toast and nothing else. Uncommitted changes in the repo: a toast asking to commit first.
 - Something pending: a confirm dialog, then `~/.p2code/run/update.command` opens in Terminal and runs `p2code-update.sh`, which installs without a prompt (the restart and logs live there). The app never builds or installs by itself, because install restarts the server and quits the app.
 - `p2code-update.sh` keeps a pid lock (`~/.p2code/update.lock`), so a second click cannot start a parallel update.
-- The electron-updater flow, the native "Check for Updates…" menu item and the Settings update controls are untouched and stay disabled in this build.
+- The electron-updater flow stays disabled in this build.
 
 ### Build
 

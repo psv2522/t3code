@@ -43,6 +43,7 @@ import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarBrandWidthProbe, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
+import { checkAndStartP2codeUpdate } from "./sidebar/p2codeUpdate";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
@@ -386,6 +387,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         if (!isSettingsRoute) {
           void navigate({ to: "/settings" });
         }
+      }
+      const p2code = window.desktopBridge?.p2code;
+      if (action === "p2code-check-for-updates" && p2code) {
+        void checkAndStartP2codeUpdate(p2code);
       }
     });
 
