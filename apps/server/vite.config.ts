@@ -95,7 +95,12 @@ export default mergeConfig(
               ...(packExecutableTargets ? { targets: packExecutableTargets } : {}),
               // Node's SEA docs: `import()` does not work when useCodeCache is
               // true, and the server reaches several modules that way.
-              seaConfig: { useCodeCache: false },
+              seaConfig: { useCodeCache: false, execArgv: ["--max-semi-space-size=4"] },
+            },
+            minify: {
+              compress: false,
+              mangle: false,
+              codegen: { removeWhitespace: true, asciiOnly: true, legalComments: "none" },
             },
           }
         : {}),
