@@ -57,7 +57,6 @@ if (packExecutableTarget && !Object.hasOwn(SEA_TARGETS, packExecutableTarget)) {
     `T3CODE_PACK_EXE_TARGET must be one of ${Object.keys(SEA_TARGETS).join(", ")}, got "${packExecutableTarget}".`,
   );
 }
-const seaCodeCacheUsable = !packExecutableTarget && process.version === `v${cliNodeVersion}`;
 const packExecutableTargets = packExecutableTarget
   ? [
       {
@@ -105,7 +104,9 @@ export default mergeConfig(
               outDir: packLauncherExecutable ? "dist-launcher" : "dist-exe",
               ...(packExecutableTargets ? { targets: packExecutableTargets } : {}),
               seaConfig: {
-                useCodeCache: seaCodeCacheUsable,
+                // --build-sea caches code without execArgv, and --optimize-for-size
+                // changes V8's flag hash, so the cache would always be rejected.
+                useCodeCache: false,
                 execArgv: ["--max-semi-space-size=4", "--optimize-for-size"],
               },
             },
