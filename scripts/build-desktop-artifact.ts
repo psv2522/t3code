@@ -4064,6 +4064,25 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   for (const entry of stageEntries) {
     const from = path.join(stageDistDir, entry);
     const stat = yield* fs.stat(from).pipe(Effect.orElseSucceed(() => null));
+    if (
+      options.platform === "mac" &&
+      options.target === "dir" &&
+      stat?.type === "Directory" &&
+      entry.startsWith("mac")
+    ) {
+      for (const bundle of (yield* fs.readDirectory(from)).filter((name) =>
+        name.endsWith(".app"),
+      )) {
+        const bundleTo = path.join(options.outputDir, bundle);
+        yield* fs.remove(bundleTo, { recursive: true, force: true });
+        yield* runCommand(ChildProcess.make("ditto", [path.join(from, bundle), bundleTo]), {
+          label: `ditto ${bundle}`,
+          verbose: options.verbose,
+        });
+        copiedArtifacts.push(bundleTo);
+      }
+      continue;
+    }
     if (!stat || stat.type !== "File") continue;
 
     const to = path.join(options.outputDir, entry);

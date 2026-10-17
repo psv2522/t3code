@@ -229,7 +229,7 @@ This checkout is `psv2522/p2code`, a private copy of `pingdotgg/t3code` (not a G
 `p2code` is a zsh function in `~/.zshrc` that wraps the scripts. Open a new shell or `source ~/.zshrc` to pick it up.
 
 - `p2code update`: sync, rebase, check, push, build, install. Installs without a confirmation prompt, since the sidebar flow cannot answer one. Flags: `--sync-only`, `--no-install`, `--no-push`, `--force`, `-v/--verbose`.
-- `p2code build` / `p2code install [--yes]` / `p2code rollback [--yes]` / `p2code version` / `p2code cd` / `p2code help`.
+- `p2code build` / `p2code install [--yes]` / `p2code rollback [--yes]` / `p2code prune [--dry-run]` / `p2code version` / `p2code cd` / `p2code help`.
 - Output is one line per step. Full output goes to `~/.p2code/{sync,build,install,rollback}.log`; failures print the log tail and path. `-v` or `P2CODE_VERBOSE=1` shows everything.
 
 Files:
@@ -259,9 +259,10 @@ In the desktop app the sidebar update button is wired to p2code (`apps/desktop/s
 ### Build
 
 - Version is `<core>-nightly.99<YYMMDD>.<seconds-of-day>`, for example `0.1.1-nightly.99261017.41007`. `<core>` is the base of the newest upstream `v*-nightly.*` tag (fallback `0.1.1`). The `99` prefix sorts above every upstream nightly (`2026xxxx`), so official clients never warn about a server mismatch. The identifier must not have a leading zero (`isExactServiceVersion` rejects it). Keep it a nightly so the app keeps the Nightly name and icon; the installed app is `/Applications/T3 Code (Nightly).app`.
-- Output lands in `~/.p2code/builds/<version>/{cli,desktop,app,release,resource-monitor,source-head}`; `~/.p2code/current` names the latest build.
+- Output lands in `~/.p2code/builds/<version>/{cli,app,release,resource-monitor,source-head}`; `~/.p2code/current` names the latest build. The desktop app is packed as an unpacked `.app` (electron-builder `dir` target) and moved into `app/`, so there is no zip round trip.
 - Package versions are aligned with `scripts/update-release-package-versions.ts` and restored afterwards.
-- The server single-executable needs the Node version from `SEA_NODE_VERSION` in `apps/server/vite.config.ts`. The script strips fnm's node from `PATH` because it shadows `VP_NODE_VERSION`.
+- The server single-executable needs the Node version from `SEA_NODE_VERSION` in `apps/server/vite.config.ts`. The script strips fnm's node from `PATH` because it shadows `VP_NODE_VERSION`. That match also turns on V8 code cache for the executable, which is only valid when the build host and Node version equal the target; any other build falls back to no cache. The script then runs `strip -x` on the executable before the archive step re-signs it.
+- The desktop build deletes Electron's `libvk_swiftshader.dylib` before signing. Apple silicon always has Metal, so the software Vulkan fallback is dead weight.
 - Rust is not installed. The `t3-resource-monitor` binary is copied from the active installed runtime (`T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true`).
 - The desktop app is built without a publish config (`GITHUB_REPOSITORY` and `T3CODE_DESKTOP_UPDATE_REPOSITORY` unset), so there is no `app-update.yml` and it never auto-updates to an official build. The build fails if one appears.
 - The app is ad hoc signed (`codesign --sign -`). macOS may re-prompt for keychain access, T3 Connect may ask to sign in again, and passkeys are unavailable.
@@ -271,6 +272,7 @@ In the desktop app the sidebar update button is wired to p2code (`apps/desktop/s
 
 - Install confirms, then backs up to `~/.p2code/backups/<timestamp>` (mode 700): `userdata/*.sqlite` via `sqlite3 .backup` (not `server-owner.sqlite`, the live server's lock), JSON files, `service-state.json`, the launchd plist, the `~/.local/bin/t3` symlink, the previous version, and the app as a tgz.
 - It quits the app, serves the release directory on a loopback port, touches `~/.t3/runtime/desktop-update-restart` (so the old server keeps its tunnel), and runs `t3 update <version> --yes` with `T3CODE_RELEASE_BASE_URL` pointing at that port. That is the supported path and switches the launchd service `com.t3tools.t3code.service`, which runs `~/.t3/runtime/versions/<ver>/t3 __service-launcher` and spawns `t3 serve`. Then it repoints `~/.local/bin/t3`, waits for the new server, replaces the app in `/Applications` with `ditto`, and reopens it.
+- After a successful install, `p2code prune` runs on its own: it keeps the newest 3 builds, 3 backups and 3 downloaded server versions, and always keeps the active version, the latest build, the latest backup's previous version, and any version a running process still uses. Run `p2code prune --dry-run` to see what it would delete.
 - Rollback switches the server back with `t3 update <previous> --allow-downgrade --yes` and restores the app from the backup tgz. It does not restore databases; copy them from the backup with the server stopped if a migration ran.
 
 ### Rules for agents
