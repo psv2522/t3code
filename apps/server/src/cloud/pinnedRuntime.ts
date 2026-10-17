@@ -35,6 +35,7 @@ const pinnedRuntimeInstallLock = Semaphore.makeUnsafe(1);
 export interface PinnedRuntimePaths {
   readonly versionDir: string;
   readonly entryPath: string;
+  readonly launcherPath: string;
   readonly sentinelPath: string;
 }
 
@@ -59,6 +60,7 @@ export function pinnedRuntimePaths(
   return {
     versionDir,
     entryPath: path.join(versionDir, platform === "win32" ? "t3.exe" : "t3"),
+    launcherPath: path.join(versionDir, platform === "win32" ? "t3-launcher.exe" : "t3-launcher"),
     sentinelPath: path.join(versionDir, ".install-complete"),
   };
 }
@@ -308,6 +310,10 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
   const stagingPaths: PinnedRuntimePaths = {
     versionDir: stagingDir,
     entryPath: input.path.join(stagingDir, input.path.relative(paths.versionDir, paths.entryPath)),
+    launcherPath: input.path.join(
+      stagingDir,
+      input.path.relative(paths.versionDir, paths.launcherPath),
+    ),
     sentinelPath: input.path.join(stagingDir, ".install-complete"),
   };
 

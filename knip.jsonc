@@ -45,6 +45,7 @@
       // Vite+ pack entries and the launcher used by installed background services.
       "entry": [
         "src/bin.ts!",
+        "src/launcherMain.ts!",
         "src/claude-history-worker.ts!",
         "scripts/cli.ts",
         "scripts/fetch-expo-schema.ts",
