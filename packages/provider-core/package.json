@@ -55,6 +55,10 @@
       "types": "./src/server/maintenance.ts",
       "import": "./src/server/maintenance.ts"
     },
+    "./server/lazyDriver": {
+      "types": "./src/server/lazyDriver.ts",
+      "import": "./src/server/lazyDriver.ts"
+    },
     "./server/maintenanceResolver": {
       "types": "./src/server/maintenanceResolver.ts",
       "import": "./src/server/maintenanceResolver.ts"

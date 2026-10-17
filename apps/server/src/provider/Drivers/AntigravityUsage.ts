@@ -14,7 +14,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
-import { resolveAntigravityInstanceDirectories } from "../antigravityAuthSupport.ts";
+import { resolveAntigravityInstanceDirectories } from "../antigravityInstanceDirectories.ts";
 import { makeAntigravityUsageCache, readAntigravityUsage } from "./antigravityUsageReader.ts";
 
 export class AntigravityUsage extends Context.Service<
