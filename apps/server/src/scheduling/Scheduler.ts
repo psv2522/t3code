@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -14,6 +15,7 @@ export class Scheduler extends Context.Service<
     readonly register: <E, R>(
       name: string,
       runDueWork: Effect.Effect<void, E, R>,
+      options?: { readonly isIdle: (nowMs: number) => Effect.Effect<boolean> },
     ) => Effect.Effect<void, never, R | Scope.Scope>;
   }
 >()("t3/scheduling/Scheduler") {}
@@ -23,11 +25,15 @@ const make = Effect.gen(function* () {
   const register: Scheduler["Service"]["register"] = Effect.fn("Scheduler.register")(function* <
     E,
     R,
-  >(name: string, runDueWork: Effect.Effect<void, E, R>) {
+  >(
+    name: string,
+    runDueWork: Effect.Effect<void, E, R>,
+    options?: { readonly isIdle: (nowMs: number) => Effect.Effect<boolean> },
+  ) {
     const scope = yield* Effect.scope;
     const context = yield* Effect.context<R>();
     const permit = yield* Semaphore.make(1);
-    const run = runDueWork.pipe(
+    const fork = runDueWork.pipe(
       Effect.provideContext(context),
       Effect.catchCause((cause) =>
         Cause.hasInterruptsOnly(cause)
@@ -38,6 +44,14 @@ const make = Effect.gen(function* () {
       Effect.forkIn(scope),
       Effect.asVoid,
     );
+    // Checked before forking so idle ticks cost no fiber and no span.
+    const run =
+      options === undefined
+        ? fork
+        : Clock.currentTimeMillis.pipe(
+            Effect.flatMap(options.isIdle),
+            Effect.flatMap((idle) => (idle ? Effect.void : fork)),
+          );
     const id = Symbol(name);
     yield* Effect.acquireRelease(
       Ref.update(sources, (current) => new Map(current).set(id, run)),

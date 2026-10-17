@@ -1,0 +1,22 @@
+diff --git a/dist/cjs/index.js b/dist/cjs/index.js
+--- a/dist/cjs/index.js
++++ b/dist/cjs/index.js
+@@ -231,7 +231,6 @@ async function invokeNative(method, event, options) {
+ }
+ /** Registers IPC handlers for native platform WebAuthn. */
+ function setupPasskeysMain() {
+-	loadNativeModule().catch((error) => console.warn(error.message));
+ 	electron.ipcMain.handle(require_ipc.PASSKEY_CHANNELS.create, (event, options) => invokeNative("createCredential", event, options));
+ 	electron.ipcMain.handle(require_ipc.PASSKEY_CHANNELS.get, (event, options) => invokeNative("getCredential", event, options));
+ 	electron.ipcMain.handle(require_ipc.PASSKEY_CHANNELS.capabilities, async () => {
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -230,7 +230,6 @@ async function invokeNative(method, event, options) {
+ }
+ /** Registers IPC handlers for native platform WebAuthn. */
+ function setupPasskeysMain() {
+-	loadNativeModule().catch((error) => console.warn(error.message));
+ 	ipcMain.handle(PASSKEY_CHANNELS.create, (event, options) => invokeNative("createCredential", event, options));
+ 	ipcMain.handle(PASSKEY_CHANNELS.get, (event, options) => invokeNative("getCredential", event, options));
+ 	ipcMain.handle(PASSKEY_CHANNELS.capabilities, async () => {

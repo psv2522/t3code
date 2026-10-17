@@ -136,7 +136,7 @@ check_node_icu() {
   '
 }
 
-cmd_build_node() {
+cmd_build_node() (
   require_cmd curl
   require_cmd make
   require_cmd shasum
@@ -156,11 +156,11 @@ cmd_build_node() {
   version="$(sea_node_version)"
   dest="$(pointer_compressed_node "$version")"
   [[ ! -x "$dest" ]] || { log "Pointer-compressed Node $version is already at $dest"; return 0; }
-  work="$OUT_ROOT/node-pc/src"
+  mkdir -p "$OUT_ROOT/node-pc"
+  work="$(mktemp -d "$OUT_ROOT/node-pc/src.XXXXXXXX")"
+  trap 'rm -rf "$work"' EXIT
   init_step_log "$OUT_ROOT/build-node.log"
   log "Building pointer-compressed Node $version with system ICU $(pkg-config --modversion icu-i18n)"
-  rm -rf "$work"
-  mkdir -p "$work"
   cd "$work"
   step "Downloading source" curl -fsSL \
     -O "https://nodejs.org/dist/v$version/node-v$version.tar.xz" \
@@ -183,9 +183,8 @@ cmd_build_node() {
   mkdir -p "$(dirname "$dest")"
   cp out/Release/node "$dest"
   cd "$REPO"
-  rm -rf "$work"
   log "Built $dest"
-}
+)
 
 restore_generated_files() {
   if [[ -n "${P2CODE_SMOKE_PID:-}" ]]; then
@@ -610,6 +609,28 @@ prune_old() {
   done < <(ls -1t "$dir")
 }
 
+prune_node_versions() {
+  local dir="$1" prefix="$2" current="$3" running name path kb seen=0
+  [[ -d "$dir" ]] || return 0
+  running="$(ps -axo command=)" || return 0
+  while IFS= read -r path; do
+    [[ -d "$path" ]] || continue
+    name="${path##*/}"
+    seen=$((seen + 1))
+    [[ "$seen" -gt 2 && "$name" != "$prefix$current" ]] || continue
+    [[ "$running" != *"/$name/"* ]] || continue
+    kb="$(du -sk "$path" 2>/dev/null | cut -f1 || true)"
+    kb="${kb:-0}"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      printf '  would delete %s (%s)\n' "$path" "$(human_kb "$kb")"
+    else
+      rm -rf "$path"
+    fi
+    PRUNE_COUNT=$((PRUNE_COUNT + 1))
+    PRUNE_KB=$((PRUNE_KB + kb))
+  done < <(ls -1td "$dir"/"$prefix"[0-9]* 2>/dev/null || true)
+}
+
 prune_all() {
   PRUNE_COUNT=0
   PRUNE_KB=0
@@ -621,6 +642,14 @@ prune_all() {
 
   prune_old "$OUT_ROOT/builds" "$KEEP_BUILDS" 0 "$current" "$active"
   prune_old "$OUT_ROOT/backups" "$KEEP_BACKUPS" 0
+  local node_version
+  node_version="$(sea_node_version 2>/dev/null || true)"
+  if [[ -n "$node_version" ]]; then
+    prune_node_versions "$OUT_ROOT/node-pc" v "$node_version"
+    prune_node_versions "$OUT_ROOT/node-pc-system-icu" v "$node_version"
+    prune_node_versions "$OUT_ROOT/node-pc-small-icu" v "$node_version"
+    prune_node_versions "$OUT_ROOT/tools" node-v "$node_version"
+  fi
   if [[ -n "$active" ]]; then
     prune_old "$T3_HOME/runtime/versions" "$KEEP_RUNTIME_VERSIONS" 1 "$active" "$previous" "$current"
   else

@@ -15,6 +15,63 @@ spec.loader.exec_module(builder)
 
 
 class BuilderTests(unittest.TestCase):
+    def test_publishes_before_pruning_only_older_managed_apks_and_their_signatures(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            cache = directory / 'apks'
+            cache.mkdir()
+            source = directory / 'validated.apk'
+            source.write_text('new artifact')
+            old = cache / 't3code-nightly-old-arm64-20261101-010101.apk'
+            latest = cache / 't3code-nightly-new-arm64-20261102-010101.apk'
+            unrelated = cache / 'other.apk'
+            for path in (old, unrelated, cache / (old.name + '.idsig')):
+                path.write_text('artifact')
+            with patch.object(builder.os, 'replace', side_effect=OSError('disk full')):
+                with self.assertRaisesRegex(OSError, 'disk full'):
+                    builder.publish_apk(source, latest, cache)
+            self.assertEqual(old.read_text(), 'artifact')
+            self.assertFalse(latest.exists())
+            self.assertFalse(list(cache.glob('.t3code-apk-*')))
+            builder.publish_apk(source, latest, cache)
+            self.assertEqual(latest.read_text(), 'new artifact')
+            self.assertEqual(sorted(path.name for path in cache.iterdir()),
+                             sorted([latest.name, unrelated.name]))
+
+            exported = directory / 'exports'
+            exported.mkdir()
+            (exported / old.name).write_text('keep')
+            builder.publish_apk(source, exported / latest.name, cache)
+            self.assertTrue((exported / old.name).exists())
+
+    def test_taildrop_retains_one_apk_only_when_transfer_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cache = root / 'apks'
+            cache.mkdir()
+            for error in (None, RuntimeError('transfer failed')):
+                signed = root / 'signed.apk'
+                gradle = root / 'app-release.apk'
+                destination = cache / 't3code-nightly-new.apk'
+                old = cache / 't3code-nightly-old.apk'
+                for path in (signed, gradle, old):
+                    path.write_text('artifact')
+                def transfer(args, **kwargs):
+                    self.assertEqual(args, ['tailscale', 'file', 'cp', destination, 'phone:'])
+                    self.assertTrue(destination.exists())
+                    if error:
+                        raise error
+                with patch.object(builder, 'run', side_effect=transfer):
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, 'transfer failed'):
+                            builder.send_apk(signed, gradle, destination, cache, 'phone:')
+                    else:
+                        builder.send_apk(signed, gradle, destination, cache, 'phone:')
+                self.assertEqual(destination.exists(), error is not None)
+                self.assertFalse(gradle.exists())
+                self.assertFalse(signed.exists())
+                self.assertFalse(old.exists())
+
     def test_native_environment_ignores_sessions_and_keeps_build_inputs(self):
         env = {'CLAUDE_CODE_SESSION_ID': 'one', 'T3CODE_THREAD_ID': 'thread',
                'EXPO_PUBLIC_KEY': 'key', 'T3CODE_RELAY_URL': 'relay',

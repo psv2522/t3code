@@ -1,11 +1,10 @@
 import type {
+  EnvironmentId,
   ProviderInstanceId,
-  ServerProvider,
   ServerProviderUsageWindow,
-  UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
 import {
-  collectProviderUsageLimits,
+  findProviderLimitAccount,
   type LimitPace,
   paceOf,
   paceRemainingPercent,
@@ -14,7 +13,9 @@ import {
 import { formatDuration, limitsNotice } from "@t3tools/shared/usageLimitsCopy";
 import { Link } from "@tanstack/react-router";
 import { msg, useGT, useLocale, useMessages } from "gt-react";
-import type { ReactNode } from "react";
+import { useEffect, useEffectEvent, type ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -22,6 +23,9 @@ import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/contex
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
+import { environmentPresentations } from "../../state/presentation";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatContextWindowCompactionMessage } from "./compaction.logic";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -34,8 +38,7 @@ const PACE_LABEL: Record<LimitPace, string> = {
 
 export interface ThreadDetailsUsageInput {
   readonly providerInstanceId: ProviderInstanceId | null;
-  readonly providers: readonly ServerProvider[];
-  readonly sources: UsageLimitSourceSnapshots;
+  readonly environmentId: EnvironmentId | null;
   readonly contextWindow: ContextWindowSnapshot | null;
 }
 
@@ -44,22 +47,41 @@ type UsageTone = "error" | "warning" | null;
 /** The selected provider's limit windows. Each row reads as room left and opens the usage page. */
 export function ThreadDetailsUsage({
   providerInstanceId,
-  providers,
-  sources,
+  environmentId,
 }: Omit<ThreadDetailsUsageInput, "contextWindow">) {
   const gt = useGT();
   const m = useMessages();
   const nowMinute = useNowMinute();
   const now = Date.parse(`${nowMinute}:00Z`);
-  const report =
-    providerInstanceId !== null
-      ? collectProviderUsageLimits(providerInstanceId, providers, sources, now)
-      : null;
-  // Only this instance's data: the report keeps one instance per login, and any other entry may be
-  // a different login or workspace, so fall back to the instance's own snapshot.
+  const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
+  const presentation = environmentId === null ? undefined : presentations.get(environmentId);
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const refreshLimits = useEffectEvent((id: EnvironmentId) => {
+    void refreshUsageLimits(
+      id,
+      () => refreshProviders({ environmentId: id, input: { limitsOnly: true } }),
+      true,
+    ).catch(() => {});
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes limits when the panel's environment connects
+  useEffect(() => {
+    if (
+      environmentId !== null &&
+      providerInstanceId !== null &&
+      presentation?.connection.phase === "connected"
+    ) {
+      refreshLimits(environmentId);
+    }
+  }, [environmentId, providerInstanceId, presentation?.connection.phase]);
   const limits =
-    report?.accounts.find((entry) => entry.instanceId === providerInstanceId)?.limits ??
-    providers.find((provider) => provider.instanceId === providerInstanceId)?.usageLimits;
+    environmentId !== null && providerInstanceId !== null
+      ? (findProviderLimitAccount(presentations, environmentId, providerInstanceId)?.limits ??
+        presentation?.serverConfig?.providers.find(
+          (provider) => provider.instanceId === providerInstanceId,
+        )?.usageLimits)
+      : undefined;
   if (!limits) return null;
   const notice = limitsNotice(limits, m);
 

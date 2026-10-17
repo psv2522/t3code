@@ -249,17 +249,18 @@ export const make = Effect.fn("background.policy.make")(function* () {
       return next;
     });
 
-  const shouldRunScopeWork: BackgroundPolicy["Service"]["shouldRunScopeWork"] = Effect.fn(
-    "BackgroundPolicy.shouldRunScopeWork",
-  )(function* (scope) {
-    const [current, settings] = yield* Effect.all([snapshot, backgroundActivitySettings]);
-    if (isHostConstrained(current.hostPower, settings)) {
-      return false;
-    }
-    return current.leases.some((lease) =>
-      leaseMayRunScopedWork(lease, scope, current.updatedAt, settings),
-    );
-  });
+  // Untraced: an in-memory check that pollers call per scope on every tick.
+  const shouldRunScopeWork: BackgroundPolicy["Service"]["shouldRunScopeWork"] = Effect.fnUntraced(
+    function* (scope) {
+      const [current, settings] = yield* Effect.all([snapshot, backgroundActivitySettings]);
+      if (isHostConstrained(current.hostPower, settings)) {
+        return false;
+      }
+      return current.leases.some((lease) =>
+        leaseMayRunScopedWork(lease, scope, current.updatedAt, settings),
+      );
+    },
+  );
 
   const shouldRunOpportunisticWork = Effect.map(
     snapshot,
