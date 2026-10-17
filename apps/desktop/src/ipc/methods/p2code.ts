@@ -67,6 +67,8 @@ const readRepo = async (): Promise<string | null> => {
   }
 };
 
+export const hasP2codeRepo = async () => (await readRepo()) !== null;
+
 const execFile = (command: string, args: ReadonlyArray<string>, timeout: number) =>
   new Promise<{ readonly stdout: string; readonly stderr: string }>((resolve, reject) => {
     NodeChildProcess.execFile(command, [...args], { timeout }, (error, stdout, stderr) => {
@@ -129,7 +131,7 @@ export const isP2codeAvailable = makeIpcMethod({
   payload: Schema.Void,
   result: Schema.Boolean,
   handler: Effect.fn("desktop.ipc.p2code.isAvailable")(function* () {
-    return (yield* Effect.promise(readRepo)) !== null;
+    return yield* Effect.promise(hasP2codeRepo);
   }),
 });
 

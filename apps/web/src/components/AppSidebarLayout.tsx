@@ -42,6 +42,7 @@ import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
+import { checkAndStartP2codeUpdate } from "./sidebar/p2codeUpdate";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
@@ -305,6 +306,10 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
     registerMenuAction("open-settings", () => {
       if (!/^\/settings(\/|$)/.test(router.state.location.pathname))
         void router.navigate({ to: "/settings" });
+    }),
+    registerMenuAction("p2code-check-for-updates", () => {
+      const p2code = window.desktopBridge?.p2code;
+      if (p2code) void checkAndStartP2codeUpdate(p2code);
     }),
   ];
   return () => {
