@@ -380,6 +380,7 @@ main() {
     install) cmd_install ;;
     all) cmd_build; cmd_install ;;
     rollback) cmd_rollback ;;
+    in-t3) inside_t3_code ;;
     version) compute_version; printf '\n' ;;
     *) usage; [[ -z "$command" || "$command" == "help" ]] || exit 1 ;;
   esac
