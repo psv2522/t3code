@@ -181,6 +181,7 @@ describe("DesktopWslBackend", () => {
           Layer.provideMerge(
             DesktopAppSettings.layerTest({
               ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+              localEnvironmentEnabled: true,
               wslBackendEnabled: true,
               wslDistro: "Ubuntu",
               wslOnly: false,

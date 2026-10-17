@@ -1,6 +1,5 @@
+import { dimensions } from "./imageDecodeValidation";
 import { PreviewError, previewFailure } from "./previewFailure";
-
-const MAX_PIXELS = 32_000_000;
 
 function validateTiffMetadata(bytes: ArrayBuffer) {
   const view = new DataView(bytes);
@@ -40,46 +39,6 @@ function validateTiffMetadata(bytes: ArrayBuffer) {
     }
   };
   inspect(view.getUint32(4, littleEndian), 0);
-}
-
-function dimensions(width: number, height: number) {
-  if (!(width > 0 && height > 0) || width > 16384 || height > 16384 || width > MAX_PIXELS / height)
-    throw new PreviewError({ code: "image-too-large" });
-}
-
-function validateHeif(bytes: ArrayBuffer) {
-  const view = new DataView(bytes);
-  let found = false;
-  let count = 0;
-  const boxes = (start: number, end: number, depth: number) => {
-    if (depth > 4) return;
-    let offset = start;
-    while (offset + 8 <= end) {
-      if (++count > 2048) throw new PreviewError({ code: "image-metadata-too-large" });
-      let size = view.getUint32(offset);
-      let header = 8;
-      if (size === 1) {
-        if (offset + 16 > end) throw new PreviewError({ code: "heif-metadata-invalid" });
-        const large = view.getBigUint64(offset + 8);
-        if (large > BigInt(bytes.byteLength))
-          throw new PreviewError({ code: "heif-metadata-invalid" });
-        size = Number(large);
-        header = 16;
-      } else if (size === 0) size = end - offset;
-      if (size < header || offset + size > end)
-        throw new PreviewError({ code: "heif-metadata-invalid" });
-      const type = view.getUint32(offset + 4);
-      if (type === 0x69737065) {
-        if (size < header + 12) throw new PreviewError({ code: "heif-dimensions-invalid" });
-        dimensions(view.getUint32(offset + header + 4), view.getUint32(offset + header + 8));
-        found = true;
-      } else if (type === 0x6d657461 || type === 0x69707270 || type === 0x6970636f)
-        boxes(offset + header + (type === 0x6d657461 ? 4 : 0), offset + size, depth + 1);
-      offset += size;
-    }
-  };
-  boxes(0, bytes.byteLength, 0);
-  if (!found) throw new PreviewError({ code: "heif-no-dimensions" });
 }
 
 // Count LZW output without building strings before the decoder allocates its strip buffer.
@@ -154,23 +113,8 @@ async function validateTiffStrips(bytes: ArrayBuffer, image: import("tiff").Tiff
   }
 }
 
-async function decode(bytes: ArrayBuffer, heif: boolean) {
+async function decode(bytes: ArrayBuffer) {
   if (bytes.byteLength > 50 * 1024 * 1024) throw new PreviewError({ code: "file-too-large" });
-  if (heif) {
-    validateHeif(bytes);
-    // Desktop CSP forbids the JavaScript evaluation used by heic-to/next.
-    const { heicTo } = await import("heic-to/csp");
-    const bitmap = await heicTo({ blob: new Blob([bytes]), type: "bitmap" });
-    try {
-      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-      const context = canvas.getContext("2d");
-      if (!context) throw new PreviewError({ code: "image-decoding-unavailable" });
-      context.drawImage(bitmap, 0, 0);
-      return await canvas.convertToBlob({ type: "image/png" });
-    } finally {
-      bitmap.close();
-    }
-  }
   const { decode: decodeTiff } = await import("tiff");
   validateTiffMetadata(bytes);
   const metadata = decodeTiff(bytes, { ignoreImageData: true, pages: [0] })[0];
@@ -212,8 +156,8 @@ async function decode(bytes: ArrayBuffer, heif: boolean) {
   return await canvas.convertToBlob({ type: "image/png" });
 }
 
-self.addEventListener("message", (event: MessageEvent<{ bytes: ArrayBuffer; heif: boolean }>) => {
-  void decode(event.data.bytes, event.data.heif).then(
+self.addEventListener("message", (event: MessageEvent<{ bytes: ArrayBuffer }>) => {
+  void decode(event.data.bytes).then(
     (blob) => self.postMessage({ blob }, { transfer: [] }),
     (cause: unknown) =>
       self.postMessage({ failure: previewFailure(cause, "image-decode-failed") }, { transfer: [] }),

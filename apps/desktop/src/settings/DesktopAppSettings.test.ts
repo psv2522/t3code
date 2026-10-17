@@ -4,6 +4,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
@@ -13,6 +14,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopAppSettings from "./DesktopAppSettings.ts";
 
 const DesktopSettingsPatch = Schema.Struct({
+  localEnvironmentEnabled: Schema.optionalKey(Schema.Boolean),
   linuxPasswordStore: Schema.optionalKey(
     Schema.Literals(["auto", "gnome-libsecret", "kwallet", "kwallet5", "kwallet6"]),
   ),
@@ -41,14 +43,14 @@ const DesktopSettingsPatch = Schema.Struct({
 const decodeDesktopSettingsPatch = Schema.decodeEffect(Schema.fromJsonString(DesktopSettingsPatch));
 const encodeDesktopSettingsPatch = Schema.encodeEffect(Schema.fromJsonString(DesktopSettingsPatch));
 
-function layerEnvironment(baseDir: string, appVersion = "0.0.17") {
+function layerEnvironment(baseDir: string, appVersion = "0.0.17", appPath = "/repo") {
   return DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: baseDir,
     platform: "darwin",
     processArch: "x64",
     appVersion,
-    appPath: "/repo",
+    appPath,
     isPackaged: true,
     resourcesPath: "/missing/resources",
     runningUnderArm64Translation: false,
@@ -69,17 +71,29 @@ const withSettings = <A, E, R>(
     E,
     R | DesktopAppSettings.DesktopAppSettings | DesktopEnvironment.DesktopEnvironment
   >,
-  options?: { readonly appVersion?: string },
+  options?: { readonly appVersion?: string; readonly serverBundled?: boolean },
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const baseDir = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "t3-desktop-settings-test-",
     });
+    if (options?.serverBundled === true) {
+      const entryDirectory = path.join(baseDir, "apps", "server", "dist");
+      yield* fileSystem.makeDirectory(entryDirectory, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(entryDirectory, "bin.mjs"), "");
+    }
     return yield* effect.pipe(
       Effect.provide(
         DesktopAppSettings.layer.pipe(
-          Layer.provideMerge(layerEnvironment(baseDir, options?.appVersion)),
+          Layer.provideMerge(
+            layerEnvironment(
+              baseDir,
+              options?.appVersion,
+              options?.serverBundled === true ? baseDir : undefined,
+            ),
+          ),
           Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
       ),
@@ -129,7 +143,7 @@ describe("DesktopSettings", () => {
   );
 
   it.effect(
-    "persists disabling and re-enabling local execution without clearing backend settings",
+    "persists enabling and disabling local execution without clearing backend settings",
     () =>
       withSettings(
         Effect.gen(function* () {
@@ -138,13 +152,25 @@ describe("DesktopSettings", () => {
           yield* settings.setWslDistro("Ubuntu");
           yield* settings.setServerExposureMode("network-accessible");
           const before = yield* settings.get;
-          assert.isTrue((yield* settings.setLocalEnvironmentEnabled(false)).changed);
-          assert.deepEqual(yield* settings.load, { ...before, localEnvironmentEnabled: false });
-          assert.isFalse((yield* settings.setLocalEnvironmentEnabled(false)).changed);
-          yield* settings.setLocalEnvironmentEnabled(true);
+          assert.isTrue((yield* settings.setLocalEnvironmentEnabled(true)).changed);
+          assert.deepEqual(yield* settings.load, { ...before, localEnvironmentEnabled: true });
+          assert.isFalse((yield* settings.setLocalEnvironmentEnabled(true)).changed);
+          yield* settings.setLocalEnvironmentEnabled(false);
           assert.deepEqual(yield* settings.load, before);
         }),
+        { serverBundled: true },
       ),
+  );
+  it.effect("keeps the local environment off when the app ships no server", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* writeSettingsPatch({ localEnvironmentEnabled: true });
+        assert.isFalse((yield* settings.load).localEnvironmentEnabled);
+        assert.isFalse((yield* settings.setLocalEnvironmentEnabled(true)).changed);
+        assert.isFalse((yield* settings.get).localEnvironmentEnabled);
+      }),
+    ),
   );
 
   it.effect("falls back to defaults when the settings file is malformed", () =>
@@ -224,7 +250,7 @@ describe("DesktopSettings", () => {
 
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "auto",
-          localEnvironmentEnabled: true,
+          localEnvironmentEnabled: false,
           mainWindowBounds: { x: 120, y: 80, width: 1280, height: 900 },
           mainWindowMaximized: false,
           serverExposureMode: "network-accessible",
@@ -254,10 +280,7 @@ describe("DesktopSettings", () => {
 
         assert.isFalse((yield* settings.load).localEnvironmentEnabled);
         yield* settings.setMainWindowBounds({ x: 10, y: 20, width: 800, height: 600 }, false);
-        assert.include(
-          yield* fileSystem.readFileString(environment.desktopSettingsPath),
-          `"localEnvironmentEnabled":false`,
-        );
+        assert.isFalse((yield* settings.load).localEnvironmentEnabled);
       }),
     ),
   );
@@ -377,7 +400,7 @@ describe("DesktopSettings", () => {
 
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "auto",
-          localEnvironmentEnabled: true,
+          localEnvironmentEnabled: false,
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",
@@ -406,7 +429,7 @@ describe("DesktopSettings", () => {
 
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "auto",
-          localEnvironmentEnabled: true,
+          localEnvironmentEnabled: false,
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",
