@@ -355,12 +355,6 @@ cmd_install() {
 
   repoint_launcher "$version"
 
-  # The switch above writes its plist from the outgoing CLI; reinstall the
-  # service with this version's CLI so it points at the launcher executable.
-  if [[ -f "$T3_HOME/runtime/service-state.json" ]]; then
-    run "$T3_HOME/runtime/versions/$version/t3" service install || true
-  fi
-
   tries=0
   until pgrep -f "runtime/versions/$version/t3" >/dev/null 2>&1; do
     tries=$((tries + 1))

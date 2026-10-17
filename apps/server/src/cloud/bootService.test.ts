@@ -314,13 +314,10 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
     }),
   );
 
-  it.effect("runs the launcher-only executable when the runtime ships one", () =>
+  it.effect("runs the launcher-only executable when the installed runtime ships one", () =>
     Effect.gen(function* () {
-      const { fs, runtime, makeService } = yield* makeHarness();
-      // The launcher lands with the runtime, and the plan is read when the
-      // service object is built, as `t3 update` does after extraction.
+      const { service, fs, runtime } = yield* makeHarness();
       yield* fs.writeFileString(runtime.launcherPath, "#!/bin/sh\n");
-      const service = yield* makeService();
       const plan = yield* service.install();
 
       expect(plan.program).toEqual([runtime.launcherPath]);
@@ -333,15 +330,13 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
 
   it.effect("repairs a service left on the hidden subcommand once a launcher ships", () =>
     Effect.gen(function* () {
-      const { fs, runtime, makeService } = yield* makeHarness();
-      const legacy = yield* makeService();
-      yield* legacy.install();
+      const { service, fs, runtime } = yield* makeHarness();
+      yield* service.install();
       yield* fs.writeFileString(runtime.launcherPath, "#!/bin/sh\n");
 
-      const upgraded = yield* makeService();
-      expect((yield* upgraded.status).current).toBe(false);
-      yield* upgraded.install();
-      expect((yield* upgraded.status).current).toBe(true);
+      expect((yield* service.status).current).toBe(false);
+      yield* service.install();
+      expect((yield* service.status).current).toBe(true);
     }),
   );
 
