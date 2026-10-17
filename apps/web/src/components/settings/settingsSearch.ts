@@ -550,6 +550,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     searchTerms: ["cli terminal shell path install command line"],
     desktopOnly: true,
+    localEnvironmentOnly: true,
   },
   {
     id: "mobile-app",
