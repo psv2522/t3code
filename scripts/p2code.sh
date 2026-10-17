@@ -9,7 +9,11 @@ INSTALLED_APP_NAME="${P2CODE_APP_NAME:-T3 Code (Nightly)}"
 SEA_NODE_VERSION="26.8.2"
 TARGET_PLATFORM="mac"
 TARGET_ARCH="arm64"
-DESKTOP_TARGET="zip"
+DESKTOP_TARGET="dir"
+KEEP_BUILDS=3
+KEEP_BACKUPS=3
+KEEP_RUNTIME_VERSIONS=3
+DRY_RUN=0
 VERSION_FILES=(
   apps/server/package.json
   apps/desktop/package.json
@@ -28,11 +32,13 @@ Usage: scripts/p2code.sh <command> [options]
   install [--yes]       Back up, then switch the background server and desktop app to the latest build
   all [--yes]           build, then install
   rollback [--yes]      Restore the app and background server from the latest backup
+  prune [--dry-run]     Delete old builds, backups and downloaded server versions (runs after install)
   version               Print the version the next build would use
 
 Options:
   -v, --verbose         Show full command output instead of one line per step
   -y, --yes             Do not ask for confirmation
+  -n, --dry-run         With prune: list what would be deleted
 
 Logs for quiet runs: build.log, install.log, rollback.log under the output root.
 
@@ -111,6 +117,7 @@ cmd_build() {
   require_cmd ditto
   require_cmd codesign
   require_cmd lipo
+  require_cmd strip
 
   cd "$REPO"
   local clean_path sea_node
@@ -155,6 +162,7 @@ cmd_build() {
   step "Aligning package versions" node scripts/update-release-package-versions.ts "$version"
   step "Building server, web client and desktop bundle" vp run build:desktop
   step "Building server executable (Node $sea_node)" env VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --verbose
+  step "Stripping server executable" strip -x apps/server/dist-exe/t3
   step "Packaging CLI archive" node scripts/build-cli-archive.ts \
     --platform "$TARGET_PLATFORM" \
     --arch "$TARGET_ARCH" \
@@ -175,17 +183,17 @@ cmd_build() {
     --skip-build \
     --verbose
 
-  local zip
-  zip="$(find "$build_dir/desktop" -maxdepth 1 -name '*.zip' | head -n 1)"
-  [[ -n "$zip" ]] || die "No desktop zip was produced in $build_dir/desktop."
+  local built_app
+  built_app="$(find "$build_dir/desktop" -maxdepth 1 -name '*.app' | head -n 1)"
+  [[ -n "$built_app" ]] || die "No .app was produced in $build_dir/desktop."
 
   begin "Verifying and signing desktop app"
   local app_dir="$build_dir/app"
   mkdir -p "$app_dir"
-  ditto -x -k "$zip" "$app_dir"
+  mv "$built_app" "$app_dir/"
   local app
   app="$(find "$app_dir" -maxdepth 1 -name '*.app' | head -n 1)"
-  [[ -n "$app" ]] || die "No .app inside $zip."
+  [[ -n "$app" ]] || die "No .app in $app_dir."
   [[ "$(basename "$app" .app)" == "$INSTALLED_APP_NAME" ]] ||
     die "Built app is '$(basename "$app")', not '$INSTALLED_APP_NAME.app'; installing would leave two apps."
   [[ ! -e "$app/Contents/Resources/app-update.yml" ]] || die "Built app has an update feed (app-update.yml); it would auto-update to official builds."
@@ -198,6 +206,7 @@ cmd_build() {
   [[ "$plist_version" == "$version" ]] || die "App reports version $plist_version, expected $version."
   grep -aq 'relay.t3.codes' "$app/Contents/Resources/app.asar" || die "relay.t3.codes is not baked into the desktop bundle."
   grep -arqs 'relay.t3.codes' "$REPO/apps/server/dist" || die "relay.t3.codes is not baked into the server bundle."
+  rm -f "$app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/"{libvk_swiftshader.dylib,vk_swiftshader_icd.json}
   run codesign --force --deep --sign - "$app" || die "Ad hoc signing failed."
   run codesign --verify --deep --strict "$app" || die "Built app failed codesign verification."
   [[ "$(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')" == "com.t3tools.t3code" ]] ||
@@ -305,7 +314,8 @@ cmd_install() {
   printf '  - quit %s\n' "$INSTALLED_APP_NAME"
   printf '  - switch the background server %s -> %s (restarts it; running agent turns and terminals stop)\n' "$previous" "$version"
   printf '  - replace %s/%s.app with the new build and reopen it\n' "$APPS_DIR" "$INSTALLED_APP_NAME"
-  printf '  - expect to sign in to T3 Connect again if macOS rejects the old keychain entry\n\n'
+  printf '  - expect to sign in to T3 Connect again if macOS rejects the old keychain entry\n'
+  printf '  - afterwards, delete builds, backups and downloaded server versions beyond the newest %s (p2code prune --dry-run lists them)\n\n' "$KEEP_BUILDS"
   confirm "Continue?" || die "Cancelled."
 
   local backup="$OUT_ROOT/backups/$(date +%Y%m%d-%H%M%S)"
@@ -362,6 +372,9 @@ cmd_install() {
   log "Installed p2code $version"
   printf 'backup:   %s\n' "$backup"
   printf 'rollback: %s/scripts/p2code.sh rollback\n' "$REPO"
+
+  DRY_RUN=0
+  prune_all || true
 }
 
 cmd_rollback() {
@@ -393,6 +406,68 @@ cmd_rollback() {
   printf 'Databases were not restored. If the new server changed them, copy from %s/userdata with the server stopped.\n' "$backup"
 }
 
+human_kb() {
+  awk -v kb="$1" 'BEGIN { if (kb >= 1048576) printf "%.1f GB", kb / 1048576; else printf "%.0f MB", kb / 1024 }'
+}
+
+prune_old() {
+  local dir="$1" keep="$2" running_check="$3"
+  shift 3
+  [[ -d "$dir" ]] || return 0
+  local running="" name path kb seen=0
+  [[ "$running_check" != "1" ]] || running="$(ps -axo command=)"
+  while IFS= read -r name; do
+    path="$dir/$name"
+    [[ -n "$name" && -d "$path" ]] || continue
+    seen=$((seen + 1))
+    [[ "$seen" -gt "$keep" ]] || continue
+    case " $* " in *" $name "*) continue ;; esac
+    [[ -z "$running" || "$running" != *"/$name/"* ]] || continue
+    kb="$(du -sk "$path" 2>/dev/null | cut -f1 || true)"
+    kb="${kb:-0}"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      printf '  would delete %s (%s)\n' "$path" "$(human_kb "$kb")"
+    else
+      rm -rf "$path"
+    fi
+    PRUNE_COUNT=$((PRUNE_COUNT + 1))
+    PRUNE_KB=$((PRUNE_KB + kb))
+  done < <(ls -1t "$dir")
+}
+
+prune_all() {
+  PRUNE_COUNT=0
+  PRUNE_KB=0
+  local active current latest_backup previous=""
+  active="$(active_version)"
+  current="$(cat "$OUT_ROOT/current" 2>/dev/null || true)"
+  latest_backup="$(find "$OUT_ROOT/backups" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)"
+  [[ -z "$latest_backup" ]] || previous="$(cat "$latest_backup/previous-version" 2>/dev/null || true)"
+
+  prune_old "$OUT_ROOT/builds" "$KEEP_BUILDS" 0 "$current" "$active"
+  prune_old "$OUT_ROOT/backups" "$KEEP_BACKUPS" 0
+  if [[ -n "$active" ]]; then
+    prune_old "$T3_HOME/runtime/versions" "$KEEP_RUNTIME_VERSIONS" 1 "$active" "$previous" "$current"
+  else
+    printf 'Skipping server versions: could not read the active version from %s/runtime/service-state.json.\n' "$T3_HOME"
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '%s items would be deleted, freeing %s.\n' "$PRUNE_COUNT" "$(human_kb "$PRUNE_KB")"
+  else
+    printf 'Deleted %s items, freed %s.\n' "$PRUNE_COUNT" "$(human_kb "$PRUNE_KB")"
+  fi
+}
+
+cmd_prune() {
+  DRY_RUN=1
+  prune_all
+  [[ "$PRUNE_COUNT" -gt 0 && "${REQUEST_DRY_RUN:-0}" != "1" ]] || return 0
+  confirm "Delete these?" || die "Cancelled."
+  DRY_RUN=0
+  prune_all
+}
+
 main() {
   [[ "$EUID" -ne 0 ]] || die "Do not run this with sudo. A root run creates a separate T3 installation and root-owned files. Run it as your normal user."
   local command="${1:-}"
@@ -403,6 +478,7 @@ main() {
     case "$arg" in
       --yes|-y) ASSUME_YES=1 ;;
       --verbose|-v) VERBOSE=1 ;;
+      --dry-run|-n) REQUEST_DRY_RUN=1 ;;
       *) die "Unknown option: $arg" ;;
     esac
   done
@@ -411,6 +487,7 @@ main() {
     install) cmd_install ;;
     all) cmd_build; cmd_install ;;
     rollback) cmd_rollback ;;
+    prune) cmd_prune ;;
     in-t3) inside_t3_code ;;
     version) compute_version; printf '\n' ;;
     *) usage; [[ -z "$command" || "$command" == "help" ]] || exit 1 ;;

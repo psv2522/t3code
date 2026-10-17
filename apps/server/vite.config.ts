@@ -55,6 +55,7 @@ if (packExecutableTarget && !Object.hasOwn(SEA_TARGETS, packExecutableTarget)) {
     `T3CODE_PACK_EXE_TARGET must be one of ${Object.keys(SEA_TARGETS).join(", ")}, got "${packExecutableTarget}".`,
   );
 }
+const seaCodeCacheUsable = !packExecutableTarget && process.version === `v${SEA_NODE_VERSION}`;
 const packExecutableTargets = packExecutableTarget
   ? [
       {
@@ -93,9 +94,10 @@ export default mergeConfig(
               fileName: "t3",
               outDir: "dist-exe",
               ...(packExecutableTargets ? { targets: packExecutableTargets } : {}),
-              // Node's SEA docs: `import()` does not work when useCodeCache is
-              // true, and the server reaches several modules that way.
-              seaConfig: { useCodeCache: false, execArgv: ["--max-semi-space-size=4"] },
+              seaConfig: {
+                useCodeCache: seaCodeCacheUsable,
+                execArgv: ["--max-semi-space-size=4"],
+              },
             },
             minify: {
               compress: false,
