@@ -97,7 +97,12 @@ export default mergeConfig(
               outDir: "dist-exe",
               ...(packExecutableTargets ? { targets: packExecutableTargets } : {}),
               // Node SEA useCodeCache breaks import(), which the server needs.
-              seaConfig: { useCodeCache: false },
+              seaConfig: { useCodeCache: false, execArgv: ["--max-semi-space-size=4"] },
+            },
+            minify: {
+              compress: false,
+              mangle: false,
+              codegen: { removeWhitespace: true, asciiOnly: true, legalComments: "none" },
             },
           }
         : {}),
