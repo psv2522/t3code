@@ -118,7 +118,7 @@ export default mergeConfig(
               seaConfig: {
                 useCodeCache: false,
                 // The bootstrap loads the embedded CLI with require(esm).
-                execArgv: ["--require-module", "--max-semi-space-size=4"],
+                execArgv: ["--require-module", "--max-semi-space-size=4", "--optimize-for-size"],
                 assets: { "binMain.mjs": NodePath.join(cliAssetDir, "binMain.mjs") },
               },
             },
