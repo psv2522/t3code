@@ -7,6 +7,9 @@ OUT_ROOT="${P2CODE_OUT:-$HOME/.p2code}"
 APPS_DIR="${P2CODE_APPS_DIR:-/Applications}"
 INSTALLED_APP_NAME="${P2CODE_APP_NAME:-T3 Code (Nightly)}"
 SEA_NODE_VERSION="26.8.2"
+TARGET_PLATFORM="mac"
+TARGET_ARCH="arm64"
+DESKTOP_TARGET="zip"
 VERSION_FILES=(
   apps/server/package.json
   apps/desktop/package.json
@@ -99,12 +102,15 @@ restore_generated_files() {
 }
 
 cmd_build() {
+  [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]] ||
+    die "p2code builds for macOS Apple silicon only; this shell is $(uname -s) $(uname -m). Run it from a native arm64 terminal, not under Rosetta."
   require_cmd vp
   require_cmd node
   require_cmd git
   require_cmd shasum
   require_cmd ditto
   require_cmd codesign
+  require_cmd lipo
 
   cd "$REPO"
   local clean_path sea_node
@@ -149,8 +155,8 @@ cmd_build() {
   step "Building server, web client and desktop bundle" vp run build:desktop
   step "Building server executable (Node $sea_node)" env VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --verbose
   step "Packaging CLI archive" node scripts/build-cli-archive.ts \
-    --platform mac \
-    --arch arm64 \
+    --platform "$TARGET_PLATFORM" \
+    --arch "$TARGET_ARCH" \
     --version "$version" \
     --resource-monitor-dir "$build_dir/resource-monitor" \
     --output-dir "$build_dir/cli"
@@ -160,9 +166,9 @@ cmd_build() {
   step "Smoke-testing CLI archive" node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version"
 
   step "Packaging desktop app" env T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true vp run dist:desktop:artifact \
-    --platform mac \
-    --target zip \
-    --arch arm64 \
+    --platform "$TARGET_PLATFORM" \
+    --target "$DESKTOP_TARGET" \
+    --arch "$TARGET_ARCH" \
     --build-version "$version" \
     --output-dir "$build_dir/desktop" \
     --skip-build \
@@ -182,6 +188,10 @@ cmd_build() {
   [[ "$(basename "$app" .app)" == "$INSTALLED_APP_NAME" ]] ||
     die "Built app is '$(basename "$app")', not '$INSTALLED_APP_NAME.app'; installing would leave two apps."
   [[ ! -e "$app/Contents/Resources/app-update.yml" ]] || die "Built app has an update feed (app-update.yml); it would auto-update to official builds."
+  local app_executable
+  app_executable="$(defaults read "$app/Contents/Info" CFBundleExecutable)"
+  [[ "$(lipo -archs "$app/Contents/MacOS/$app_executable")" == "$TARGET_ARCH" ]] ||
+    die "App executable is not $TARGET_ARCH only."
   local plist_version
   plist_version="$(defaults read "$app/Contents/Info" CFBundleShortVersionString)"
   [[ "$plist_version" == "$version" ]] || die "App reports version $plist_version, expected $version."
