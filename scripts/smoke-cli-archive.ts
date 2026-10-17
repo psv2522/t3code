@@ -101,7 +101,12 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
   }
   const contentDir = path.join(scratch, root);
   const executable = path.join(contentDir, platform === "win32" ? "t3.exe" : "t3");
-  for (const required of [executable, path.join(contentDir, "client/index.html")]) {
+  const launcher = path.join(contentDir, "t3-launcher");
+  const requiredPaths = [executable, path.join(contentDir, "client/index.html")];
+  if (platform !== "win32") {
+    requiredPaths.push(launcher);
+  }
+  for (const required of requiredPaths) {
     if (!(yield* fs.exists(required))) {
       return yield* new CliArchiveSmokeError({
         step: "checking the archive layout",
@@ -116,6 +121,19 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
       step: "running --version",
       detail: `exit ${String(version.exitCode)}\n${version.stdout}${version.stderr}`,
     });
+  }
+
+  if (platform !== "win32") {
+    // The launcher is a second single executable, and one that fails to boot
+    // crash-loops the boot service, so prove it starts and reaches its own
+    // argument check (the smoke environment has no T3CODE_HOME).
+    const probe = yield* runExecutable(launcher, [], contentDir);
+    if (probe.exitCode === 0 || !probe.stderr.includes("T3CODE_HOME is required")) {
+      return yield* new CliArchiveSmokeError({
+        step: "running the service launcher",
+        detail: `exit ${String(probe.exitCode)}\n${probe.stdout}${probe.stderr}`,
+      });
+    }
   }
 
   const net = yield* NetService.NetService;

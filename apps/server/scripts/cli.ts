@@ -103,6 +103,12 @@ const buildExeCmd = Command.make(
   "build-exe",
   {
     verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
+    launcher: Flag.Boolean("launcher").pipe(
+      Flag.withDescription(
+        "Build the boot service's launcher-only executable instead of the server.",
+      ),
+      Flag.withDefault(false),
+    ),
     target: Flag.String("target").pipe(
       Flag.withDescription(
         "Cross-build for <platform>-<arch> in nodejs.org naming (for example darwin-x64); defaults to the host.",
@@ -125,6 +131,7 @@ const buildExeCmd = Command.make(
           env: {
             ...process.env,
             T3CODE_PACK_EXE: "1",
+            ...(config.launcher ? { T3CODE_PACK_EXE_LAUNCHER: "1" } : {}),
             ...Option.match(config.target, {
               onNone: () => ({}),
               onSome: (target) => ({ T3CODE_PACK_EXE_TARGET: target }),
@@ -139,13 +146,18 @@ const buildExeCmd = Command.make(
       // The executable can only `import` built-ins. A file-backed import
       // passes the bundler and `node dist/bin.mjs`, then throws inside the
       // binary, so read the emitted module graph rather than trusting config.
-      const bundlePath = path.join(serverDir, "dist-exe/bin.mjs");
+      const bundlePath = path.join(
+        serverDir,
+        config.launcher ? "dist-launcher/launcherMain.mjs" : "dist-exe/bin.mjs",
+      );
       const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
       if (specifiers.length > 0) {
         return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
       }
       yield* Effect.log(
-        "[cli] Built dist-exe/t3 (expects client/, resource-monitor/, and the runtime-external node_modules beside it; scripts/build-cli-archive.ts assembles that tree)",
+        config.launcher
+          ? "[cli] Built dist-launcher/t3-launcher (the boot service runs it beside the server; scripts/build-cli-archive.ts packages both)"
+          : "[cli] Built dist-exe/t3 (expects client/, resource-monitor/, and the runtime-external node_modules beside it; scripts/build-cli-archive.ts assembles that tree)",
       );
     }),
 ).pipe(

@@ -35,6 +35,9 @@ if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
 // executable needs a host Node that supports `--build-sea` (25.7+), so this is
 // a separate mode rather than a second entry in the default build.
 const packExecutable = process.env.T3CODE_PACK_EXE === "1";
+// The boot service's launcher-only executable: the same SEA pipeline with
+// serviceLauncher.ts as the whole bundle instead of the server.
+const packLauncherExecutable = packExecutable && process.env.T3CODE_PACK_EXE_LAUNCHER === "1";
 const SEA_TARGETS = {
   "darwin-arm64": { platform: "darwin", arch: "arm64" },
   "darwin-x64": { platform: "darwin", arch: "x64" },
@@ -55,7 +58,7 @@ if (packExecutableTarget && !Object.hasOwn(SEA_TARGETS, packExecutableTarget)) {
     `T3CODE_PACK_EXE_TARGET must be one of ${Object.keys(SEA_TARGETS).join(", ")}, got "${packExecutableTarget}".`,
   );
 }
-const seaCodeCacheUsable = !packExecutableTarget && process.version === `v${SEA_NODE_VERSION}`;
+const seaCodeCacheUsable = !packExecutableTarget && process.version === `v${cliNodeVersion}`;
 const packExecutableTargets = packExecutableTarget
   ? [
       {
@@ -84,15 +87,19 @@ export default mergeConfig(
     pack: {
       // The executable embeds one entry; the history worker becomes a hidden
       // subcommand there instead of a sibling script.
-      entry: packExecutable ? ["src/bin.ts"] : ["src/bin.ts", "src/claude-history-worker.ts"],
-      outDir: packExecutable ? "dist-exe" : "dist",
+      entry: packExecutable
+        ? packLauncherExecutable
+          ? ["src/launcherMain.ts"]
+          : ["src/bin.ts"]
+        : ["src/bin.ts", "src/claude-history-worker.ts"],
+      outDir: packExecutable ? (packLauncherExecutable ? "dist-launcher" : "dist-exe") : "dist",
       sourcemap: !packExecutable,
       clean: true,
       ...(packExecutable
         ? {
             exe: {
-              fileName: "t3",
-              outDir: "dist-exe",
+              fileName: packLauncherExecutable ? "t3-launcher" : "t3",
+              outDir: packLauncherExecutable ? "dist-launcher" : "dist-exe",
               ...(packExecutableTargets ? { targets: packExecutableTargets } : {}),
               seaConfig: {
                 useCodeCache: seaCodeCacheUsable,

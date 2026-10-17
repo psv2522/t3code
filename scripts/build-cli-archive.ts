@@ -278,6 +278,7 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
   readonly repoRoot: string;
   readonly contentDir: string;
   readonly executablePath: string;
+  readonly extraExecutablePaths?: ReadonlyArray<string>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -295,14 +296,15 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
     )
     .map((entry) => path.join(input.contentDir, entry));
 
-  for (const target of [...libraries, input.executablePath]) {
+  const executables = [input.executablePath, ...(input.extraExecutablePaths ?? [])];
+  for (const target of [...libraries, ...executables]) {
     yield* runCommand(
       ChildProcess.make("codesign", [
         "--force",
         "--sign",
         identity,
         ...(identity === "-" ? [] : ["--options", "runtime", "--timestamp"]),
-        ...(target === input.executablePath ? ["--entitlements", entitlements] : []),
+        ...(executables.includes(target) ? ["--entitlements", entitlements] : []),
         target,
       ]),
       `codesign ${path.relative(input.contentDir, target)}`,
@@ -444,23 +446,25 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   const repoRoot = yield* RepoRoot;
   const serverDir = path.join(repoRoot, "apps/server");
   const executableName = input.platform === "win" ? "t3.exe" : "t3";
+  const launcherName = input.platform === "win" ? "t3-launcher.exe" : "t3-launcher";
   // tsdown suffixes cross-built executables with their target (t3-darwin-x64);
   // a host build is plain t3. Prefer the exact target when both exist.
   const targetKey = `${input.platform === "mac" ? "darwin" : input.platform}-${input.arch}`;
-  const targetExecutable = path.join(
-    serverDir,
-    "dist-exe",
-    `t3-${targetKey}${input.platform === "win" ? ".exe" : ""}`,
-  );
   // The unsuffixed host build is only a valid stand-in when it was built for
   // this platform and architecture; otherwise a missing target must fail.
   const hostPlatform = yield* HostProcess.Platform;
   const hostKey = `${hostPlatform === "win32" ? "win" : hostPlatform}-${yield* HostProcess.Architecture}`;
-  const builtExecutable = (yield* fs.exists(targetExecutable))
-    ? targetExecutable
-    : targetKey === hostKey
-      ? path.join(serverDir, "dist-exe", executableName)
-      : targetExecutable;
+  const resolveBuilt = (outDir: string, name: string) =>
+    Effect.gen(function* () {
+      const suffix = input.platform === "win" ? ".exe" : "";
+      const targetPath = path.join(serverDir, outDir, `${name}-${targetKey}${suffix}`);
+      if (yield* fs.exists(targetPath)) return targetPath;
+      return targetKey === hostKey ? path.join(serverDir, outDir, `${name}${suffix}`) : targetPath;
+    });
+  const builtExecutable = yield* resolveBuilt("dist-exe", "t3");
+  // Windows has no boot service, so the launcher-only executable is a
+  // macOS/Linux artifact.
+  const builtLauncher = yield* resolveBuilt("dist-launcher", "t3-launcher");
   const webClient = path.join(serverDir, "dist/client");
   const resourceMonitorDir = Option.getOrElse(input.resourceMonitorDir, () =>
     path.join(serverDir, "dist/resource-monitor"),
@@ -470,6 +474,12 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     builtExecutable,
     `Run \`node apps/server/scripts/cli.ts build-exe --target ${targetKey}\` first.`,
   );
+  if (input.platform !== "win") {
+    yield* requireInput(
+      builtLauncher,
+      `Run \`node apps/server/scripts/cli.ts build-exe --launcher --target ${targetKey}\` first.`,
+    );
+  }
   yield* requireInput(path.join(webClient, "index.html"), "Run `vp run --filter t3 build` first.");
   yield* requireInput(
     resourceMonitorDir,
@@ -483,6 +493,9 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
 
   yield* Effect.log(`[cli-archive] Staging ${stem}...`);
   yield* fs.copyFile(builtExecutable, path.join(contentDir, executableName));
+  if (input.platform !== "win") {
+    yield* fs.copyFile(builtLauncher, path.join(contentDir, launcherName));
+  }
   yield* stageWebClient(webClient, path.join(contentDir, "client"));
   yield* fs.copy(resourceMonitorDir, path.join(contentDir, "resource-monitor"));
   yield* stageRuntimeExternals({
@@ -495,12 +508,18 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
 
   const executablePath = path.join(contentDir, executableName);
   if (input.platform === "mac") {
-    yield* signMacArchiveContents({ repoRoot, contentDir, executablePath });
+    yield* signMacArchiveContents({
+      repoRoot,
+      contentDir,
+      executablePath,
+      extraExecutablePaths: [path.join(contentDir, launcherName)],
+    });
   } else if (input.platform === "win") {
     yield* signWindowsExecutable(executablePath);
   }
   if (input.platform !== "win") {
     yield* fs.chmod(executablePath, 0o755);
+    yield* fs.chmod(path.join(contentDir, launcherName), 0o755);
   }
 
   yield* fs.makeDirectory(input.outputDir, { recursive: true });

@@ -88,7 +88,7 @@ inside_t3_code() {
   while [[ "$pid" -gt 1 ]]; do
     cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
     case "$cmd" in
-      *"T3 Code"*|*"__service-launcher"*|*"/t3 serve"*) return 0 ;;
+      *"T3 Code"*|*"__service-launcher"*|*"/t3-launcher"*|*"/t3 serve"*) return 0 ;;
     esac
     pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
     [[ -n "$pid" ]] || break
@@ -163,6 +163,8 @@ cmd_build() {
   step "Building server, web client and desktop bundle" vp run build:desktop
   step "Building server executable (Node $sea_node)" env VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --verbose
   step "Stripping server executable" strip -x apps/server/dist-exe/t3
+  step "Building launcher executable (Node $sea_node)" env VP_NODE_VERSION="$sea_node" node apps/server/scripts/cli.ts build-exe --launcher --verbose
+  step "Stripping launcher executable" strip -x apps/server/dist-launcher/t3-launcher
   step "Packaging CLI archive" node scripts/build-cli-archive.ts \
     --platform "$TARGET_PLATFORM" \
     --arch "$TARGET_ARCH" \
@@ -352,6 +354,12 @@ cmd_install() {
   trap - EXIT
 
   repoint_launcher "$version"
+
+  # The switch above writes its plist from the outgoing CLI; reinstall the
+  # service with this version's CLI so it points at the launcher executable.
+  if [[ -f "$T3_HOME/runtime/service-state.json" ]]; then
+    run "$T3_HOME/runtime/versions/$version/t3" service install || true
+  fi
 
   tries=0
   until pgrep -f "runtime/versions/$version/t3" >/dev/null 2>&1; do

@@ -600,6 +600,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const statePath = path.join(input.baseDir, "runtime", SERVICE_STATE_FILE);
   const restartPendingPath = path.join(input.baseDir, "runtime", SERVICE_RESTART_PENDING_FILE);
   const runtimePaths = pinnedRuntimePaths(path, input.baseDir, input.cliVersion, platform);
+  const launcherInstalled = yield* fs.exists(runtimePaths.launcherPath);
   const writeDurably = (filePath: string, contents: string) =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -620,7 +621,13 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
       }),
     ).pipe(Effect.mapError((cause) => new BootServiceInstallError({ cause })));
   const plan: BootServicePlan = {
-    program: [runtimePaths.entryPath, "__service-launcher"],
+    // Prefer the launcher-only executable when the runtime ships one: this
+    // process outlives every server version, and the server binary would make
+    // it load the whole CLI bundle. Runtimes installed earlier, and downgrades
+    // to them, keep the hidden server subcommand.
+    program: launcherInstalled
+      ? [runtimePaths.launcherPath]
+      : [runtimePaths.entryPath, "__service-launcher"],
     baseDir: input.baseDir,
     logPath,
     unitPath,
