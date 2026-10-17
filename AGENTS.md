@@ -234,8 +234,7 @@ This checkout is `psv2522/p2code`, a private copy of `pingdotgg/t3code` (not a G
 
 Files:
 
-- `scripts/p2code.sh` (build, install, rollback) and `scripts/p2code-lib.sh` (step/log helpers) are tracked on `p2code/custom`.
-- `scripts/p2code-update.sh` (the sync driver) is untracked and hidden through `.git/info/exclude`, so a fresh clone does not have it.
+- `scripts/p2code.sh` (build, install, rollback), `scripts/p2code-update.sh` (the sync driver) and `scripts/p2code-lib.sh` (step/log helpers) are tracked on `p2code/custom`.
 
 ### What `p2code update` does
 
