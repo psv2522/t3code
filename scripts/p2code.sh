@@ -403,4 +403,4 @@ main() {
   esac
 }
 
-main "$@"
+main "$@"; exit $?
