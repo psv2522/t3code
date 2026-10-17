@@ -29,12 +29,7 @@ if (
     const { runAcpMcpCliFastPath } = await import("./mcp/AcpMcpStdioBridge.ts");
     await runAcpMcpCliFastPath(command, process.argv.slice(3));
   } else if (command === "__service-launcher") {
-    const { main } = await import("./serviceLauncher.ts");
-    main().catch((cause: unknown) => {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      process.stderr.write(`[service-launcher] ${error.message}\n`);
-      process.exitCode = 1;
-    });
+    await import("./launcherMain.ts");
   } else {
     // Before anything reads stdin: the desktop app's Windows launcher starts
     // the CLI without one. Never for the fast paths, whose stdin is a pipe.

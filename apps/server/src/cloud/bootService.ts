@@ -598,7 +598,6 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const statePath = path.join(input.baseDir, "runtime", SERVICE_STATE_FILE);
   const restartPendingPath = path.join(input.baseDir, "runtime", SERVICE_RESTART_PENDING_FILE);
   const runtimePaths = pinnedRuntimePaths(path, input.baseDir, input.cliVersion, platform);
-  const launcherInstalled = yield* fs.exists(runtimePaths.launcherPath);
   const writeDurably = (filePath: string, contents: string) =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -618,18 +617,18 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
         );
       }),
     ).pipe(Effect.mapError((cause) => new BootServiceInstallError({ cause })));
-  const plan: BootServicePlan = {
-    // Prefer the launcher-only executable when the runtime ships one: this
-    // process outlives every server version, and the server binary would make
-    // it load the whole CLI bundle. Runtimes installed earlier, and downgrades
-    // to them, keep the hidden server subcommand.
-    program: launcherInstalled
-      ? [runtimePaths.launcherPath]
-      : [runtimePaths.entryPath, "__service-launcher"],
-    baseDir: input.baseDir,
-    logPath,
-    unitPath,
-  };
+  // Read after the runtime is installed: runtimes built before t3-launcher,
+  // and downgrades to them, keep the hidden server subcommand.
+  const resolvePlan = fs.exists(runtimePaths.launcherPath).pipe(
+    Effect.map((launcherInstalled): BootServicePlan => ({
+      program: launcherInstalled
+        ? [runtimePaths.launcherPath]
+        : [runtimePaths.entryPath, "__service-launcher"],
+      baseDir: input.baseDir,
+      logPath,
+      unitPath,
+    })),
+  );
 
   const requireManager = Effect.suspend(() =>
     detectedManager === undefined
@@ -806,6 +805,9 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
             })
           : new BootServiceInstallError({ cause: error }),
       ),
+    );
+    const plan = yield* resolvePlan.pipe(
+      Effect.mapError((cause) => new BootServiceInstallError({ cause })),
     );
     const installed = yield* fs
       .exists(unitPath)
@@ -1017,11 +1019,12 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     if (!(yield* fs.exists(unitPath))) {
       return { supported: true, installed: false, current: false, unitPath, logPath };
     }
-    const [unit, runtimeEntryExists, runtimeSentinel, stateText] = yield* Effect.all([
+    const [unit, runtimeEntryExists, runtimeSentinel, stateText, plan] = yield* Effect.all([
       fs.readFileString(unitPath),
       fs.exists(runtimePaths.entryPath),
       fs.readFileString(runtimePaths.sentinelPath).pipe(Effect.option),
       fs.readFileString(statePath).pipe(Effect.option),
+      resolvePlan,
     ]);
     const state = Option.isSome(stateText) ? parseServiceState(stateText.value) : undefined;
     const installedVersion = Option.isSome(stateText)
