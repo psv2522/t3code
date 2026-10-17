@@ -271,6 +271,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   checkForUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_CHECK_CHANNEL),
   downloadUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_DOWNLOAD_CHANNEL),
   installUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_INSTALL_CHANNEL),
+  p2code: {
+    isAvailable: () => ipcRenderer.invoke(IpcChannels.P2CODE_AVAILABLE_CHANNEL),
+    check: () => ipcRenderer.invoke(IpcChannels.P2CODE_CHECK_CHANNEL),
+    update: () => ipcRenderer.invoke(IpcChannels.P2CODE_UPDATE_CHANNEL),
+  },
   cliCommand: {
     getState: () => ipcRenderer.invoke(IpcChannels.CLI_COMMAND_GET_STATE_CHANNEL),
     install: () => ipcRenderer.invoke(IpcChannels.CLI_COMMAND_INSTALL_CHANNEL),

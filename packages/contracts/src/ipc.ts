@@ -346,6 +346,20 @@ export const DesktopUpdateCheckResultSchema = Schema.Struct({
   state: DesktopUpdateStateSchema,
 });
 
+export const DesktopP2codeCheckResultSchema = Schema.Struct({
+  status: Schema.Literals(["up-to-date", "available", "dirty", "error"]),
+  upstreamCommits: Schema.Number,
+  localChanges: Schema.Boolean,
+  message: Schema.NullOr(Schema.String),
+});
+export type DesktopP2codeCheckResult = typeof DesktopP2codeCheckResultSchema.Type;
+
+export const DesktopP2codeUpdateResultSchema = Schema.Struct({
+  started: Schema.Boolean,
+  message: Schema.NullOr(Schema.String),
+});
+export type DesktopP2codeUpdateResult = typeof DesktopP2codeUpdateResultSchema.Type;
+
 export const PRIMARY_LOCAL_ENVIRONMENT_ID = "primary";
 
 export interface DesktopEnvironmentBootstrap {
@@ -1135,6 +1149,11 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  p2code?: {
+    isAvailable: () => Promise<boolean>;
+    check: () => Promise<DesktopP2codeCheckResult>;
+    update: () => Promise<DesktopP2codeUpdateResult>;
+  };
   cliCommand?: {
     getState: () => Promise<DesktopCliCommandState>;
     install: () => Promise<DesktopCliCommandState>;
