@@ -42,11 +42,6 @@ import {
   type AntigravityCliReleaseAsset,
 } from "./antigravityCliRelease.ts";
 import { openZipArchive } from "../zipArchive.ts";
-import { makeAntigravityAcpRuntime } from "./acp/AntigravityAcpSupport.ts";
-import {
-  buildAntigravityAcpSpawnInput,
-  prepareAntigravityProfile,
-} from "./antigravityAuthSupport.ts";
 import { type AntigravityReleaseAsset } from "./antigravityRelease.ts";
 
 const DRIVER = ProviderDriverKind.make("antigravity");
@@ -462,6 +457,12 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
               }),
               Effect.orDie,
             ),
+        );
+        const { makeAntigravityAcpRuntime } = yield* Effect.promise(
+          () => import("./acp/AntigravityAcpSupport.ts"),
+        );
+        const { buildAntigravityAcpSpawnInput, prepareAntigravityProfile } = yield* Effect.promise(
+          () => import("./antigravityAuthSupport.ts"),
         );
         const profile = yield* prepareAntigravityProfile({
           profileDirectory,

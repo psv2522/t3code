@@ -3657,6 +3657,28 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         yield* git(cwd, ["add", "feature.txt"]);
         yield* git(cwd, ["commit", "-m", "feature work"]);
 
+        yield* git(cwd, [
+          "config",
+          "--add",
+          "branch.feature/configured-base.gh-merge-base",
+          "origin/main",
+        ]);
+        yield* git(cwd, [
+          "config",
+          "--add",
+          "branch.feature/configured-base.gh-merge-base",
+          "upstream/main",
+        ]);
+        const duplicateConfigStatus = yield* driver.statusDetailsLocal(cwd, {
+          includeBranchChanges: true,
+        });
+        assert.deepStrictEqual(duplicateConfigStatus.branchChanges, {
+          baseRef: "upstream/main",
+          insertions: 1,
+          deletions: 0,
+        });
+        yield* git(cwd, ["config", "--unset-all", "branch.feature/configured-base.gh-merge-base"]);
+
         for (const baseRef of ["upstream/main", "canonical/team/main", "release/v2"]) {
           yield* git(cwd, ["config", "branch.feature/configured-base.gh-merge-base", baseRef]);
           const status = yield* driver.statusDetailsLocal(cwd, { includeBranchChanges: true });
@@ -6001,7 +6023,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           assert.equal(yield* git(created.worktree.path, ["branch", "--show-current"]), branch);
           assert.include(
             yield* git(cwd, ["-c", "core.quotePath=false", "worktree", "list", "--porcelain"]),
-            `worktree ${created.worktree.path}`,
+            `worktree ${NodeFS.realpathSync.native(created.worktree.path)}`,
           );
           folders.add(folder);
         }
@@ -7339,7 +7361,14 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         yield* git(cwd, ["add", "upstream.txt"]);
         yield* git(cwd, ["commit", "-m", "source advance"]);
         const remoteHead = yield* git(cwd, ["rev-parse", "HEAD"]);
-        yield* git(source, ["--git-dir=.", "fetch", cwd, "stable:refs/heads/release"]);
+        yield* git(source, [
+          "--git-dir=.",
+          "-c",
+          "fetch.prune=false",
+          "fetch",
+          cwd,
+          "stable:refs/heads/release",
+        ]);
         yield* git(cwd, ["reset", "--hard", localHead]);
         const driver = yield* GitVcsDriver.GitVcsDriver;
 

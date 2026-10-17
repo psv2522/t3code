@@ -20,8 +20,7 @@ import {
   GrokUsageResponse,
   grokUsageResponseToLimits,
 } from "@t3tools/provider-grok/server";
-import { codexPlanLabel } from "../provider/CodexProvider.ts";
-import { codexRateLimitsToLimits } from "../provider/codexUsageLimits.ts";
+import { codexPlanLabel, codexRateLimitsToLimits } from "../provider/codexUsageLimits.ts";
 import { claudeUsageResponseToLimits } from "../provider/claudeUsageLimits.ts";
 import {
   antigravityAccountFingerprint,

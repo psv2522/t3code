@@ -1,4 +1,3 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderReplayEntry, type ProviderReplayTranscript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -19,6 +18,10 @@ import {
   OPENCODE_PROVIDER,
   OPENCODE_SDK_PROTOCOL,
 } from "@t3tools/provider-opencode/testing";
+
+type OpencodeClient = ReturnType<
+  OpenCodeRuntime.OpenCodeRuntime["Service"]["createOpenCodeSdkClient"]
+>;
 
 const OPENCODE_SDK_REPLAY_PROTOCOL = OPENCODE_SDK_PROTOCOL;
 

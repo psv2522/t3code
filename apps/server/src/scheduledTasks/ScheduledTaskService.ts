@@ -1242,7 +1242,6 @@ export const layer = Layer.effect(
     const runDueTasks = Effect.fn("ScheduledTaskService.runDueTasks")(function* () {
       const now = yield* localNow;
       const nowMs = DateTime.toEpochMillis(now);
-      if (yield* dueTasks.isIdle(nowMs)) return;
       const readVersion = yield* dueTasks.version;
       const [next] = yield* sql<{ next_run_at: string | null }>`
         SELECT MIN(next_run_at) AS next_run_at FROM scheduled_tasks
@@ -1343,7 +1342,7 @@ export const layer = Layer.effect(
       ),
     );
 
-    yield* scheduler.register("scheduled-tasks", runDueTasks());
+    yield* scheduler.register("scheduled-tasks", runDueTasks(), { isIdle: dueTasks.isIdle });
 
     const list: ScheduledTaskService["Service"]["list"] = () =>
       listRows().pipe(
@@ -2499,7 +2498,6 @@ export const layer = Layer.effect(
 
     const dispatchPending = Effect.fn("ScheduledTaskService.dispatchPendingWebhooks")(function* () {
       const now = DateTime.toEpochMillis(yield* localNow);
-      if (yield* pendingWebhooks.isIdle(now)) return;
       const readVersion = yield* pendingWebhooks.version;
       yield* sql`UPDATE scheduled_task_webhook_pending SET state = 'dispatching' WHERE state = 'pending' AND due_at <= ${now}`;
       const tasks = yield* sql<{ task_id: ScheduledTaskId }>`
@@ -2611,7 +2609,9 @@ export const layer = Layer.effect(
         { discard: true },
       );
     });
-    yield* scheduler.register("webhook-coalescing", dispatchPending());
+    yield* scheduler.register("webhook-coalescing", dispatchPending(), {
+      isIdle: pendingWebhooks.isIdle,
+    });
 
     return ScheduledTaskService.of({
       list,

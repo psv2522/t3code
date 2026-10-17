@@ -658,6 +658,8 @@ const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
   payload: Schema.Struct({
+    /** Refresh usage limits without a full provider health or model scan. */
+    limitsOnly: Schema.optional(Schema.Boolean),
     instanceId: Schema.optional(ProviderInstanceId),
     cwd: Schema.optional(TrimmedNonEmptyString),
     fresh: Schema.optional(Schema.Boolean),

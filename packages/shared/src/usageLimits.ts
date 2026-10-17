@@ -250,6 +250,44 @@ function accountKeyResolver(reports: Iterable<AccountReport>) {
   };
 }
 
+export function providersCoveredByUsageSources(
+  providers: readonly ServerProvider[],
+  sources: UsageLimitSourceSnapshots,
+  now: number,
+): ReadonlySet<ProviderInstanceId> {
+  const resolveKey = accountKeyResolver([
+    ...providers.filter((provider) => provider.enabled).map(nativeReport),
+    ...sources.flatMap((source) => source.accounts),
+  ]);
+  const latest = new Map<string, number>();
+  for (const source of sources) {
+    if (source.error) continue;
+    for (const account of source.accounts) {
+      const key = resolveKey(account);
+      const checkedAt = Date.parse(account.usageLimits.checkedAt);
+      if (
+        !key ||
+        limitsNotice(account.usageLimits) !== null ||
+        !Number.isFinite(checkedAt) ||
+        checkedAt > now ||
+        now - checkedAt > 5 * MINUTE
+      )
+        continue;
+      latest.set(key, Math.max(latest.get(key) ?? 0, checkedAt));
+    }
+  }
+  return new Set(
+    providers.flatMap((provider) => {
+      const key = resolveKey(nativeReport(provider));
+      const sourceCheckedAt = key ? latest.get(key) : undefined;
+      const nativeCheckedAt = provider.usageLimits ? Date.parse(provider.usageLimits.checkedAt) : 0;
+      return provider.enabled && sourceCheckedAt !== undefined && sourceCheckedAt >= nativeCheckedAt
+        ? [provider.instanceId]
+        : [];
+    }),
+  );
+}
+
 const hubAccountName = (account: { readonly id: string }) => account.id.replace(/\.json$/i, "");
 
 export interface LimitAccount {
@@ -271,7 +309,7 @@ export interface LimitAccount {
   readonly limits: ServerProviderUsageLimits;
 }
 
-export function collectLimitAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
+function collectLimitAccountMap(presentations: LimitPresentations) {
   const accounts = new Map<string, LimitAccount>();
   const creditSources = new Map<string, LimitAccount>();
   const hubRedeems = new Map<string, LimitAccount>();
@@ -403,7 +441,26 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       }
     }
   }
-  return [...accounts.values()];
+  return { accounts, resolveKey };
+}
+
+export function collectLimitAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
+  return [...collectLimitAccountMap(presentations).accounts.values()];
+}
+
+export function findProviderLimitAccount(
+  presentations: LimitPresentations,
+  environmentId: EnvironmentId,
+  instanceId: ProviderInstanceId,
+): LimitAccount | undefined {
+  const provider = presentations
+    .get(environmentId)
+    ?.serverConfig?.providers.find(
+      (candidate) => candidate.instanceId === instanceId && candidate.enabled,
+    );
+  if (!provider) return undefined;
+  const { accounts, resolveKey } = collectLimitAccountMap(presentations);
+  return accounts.get(resolveKey(nativeReport(provider)) ?? `${environmentId}:${instanceId}`);
 }
 
 export function collectLimitNotices(presentations: LimitPresentations): readonly string[] {

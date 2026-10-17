@@ -69,6 +69,44 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def prune_cached_apks(directory, keep):
+    for apk in directory.glob('t3code-nightly-*.apk'):
+        if apk != keep and apk.is_file():
+            apk.unlink()
+            apk.with_name(apk.name + '.idsig').unlink(missing_ok=True)
+
+
+def publish_apk(apk, destination, cache_dir):
+    with tempfile.NamedTemporaryFile(dir=destination.parent, prefix='.t3code-apk-', delete=False) as staged:
+        staged_path = Path(staged.name)
+        try:
+            with apk.open('rb') as source_file:
+                shutil.copyfileobj(source_file, staged)
+            staged.close()
+            os.replace(staged_path, destination)
+        finally:
+            staged_path.unlink(missing_ok=True)
+    if destination.parent == cache_dir:
+        prune_cached_apks(cache_dir, destination)
+
+
+def send_apk(apk, gradle_apk, destination, cache_dir, target):
+    try:
+        publish_apk(apk, destination, cache_dir)
+        if destination.parent != cache_dir:
+            prune_cached_apks(cache_dir, None)
+        print(f'APK: {destination}', flush=True)
+        try:
+            run(['tailscale', 'file', 'cp', destination, target])
+        except Exception:
+            print(f'Taildrop failed; APK retained for retry: {destination}', file=sys.stderr)
+            raise
+        destination.unlink()
+    finally:
+        gradle_apk.unlink(missing_ok=True)
+        apk.unlink(missing_ok=True)
+
+
 def native_environment(env):
     keys = {'APP_VARIANT', 'NODE_ENV', 'JAVA_HOME', 'MOBILE_VERSION_POLICY',
             'T3_SHOWCASE_CAPTURE_BUILD', 'CMAKE_VERSION', 'CI'}
@@ -325,6 +363,7 @@ def main():
                         help='Default: the local --source when --ref is given (build in place), else <state-dir>/checkout')
     parser.add_argument('--state-dir', type=Path, default=Path.home() / '.cache/t3-android')
     parser.add_argument('--output', type=Path, help='Default: <state-dir>/apks')
+    parser.add_argument('--taildrop-target', default='prathmesh-android:', help='Taildrop destination')
     parser.add_argument('--abi', default='arm64-v8a', help='Comma-separated RN Android ABIs')
     parser.add_argument('--confirm-arm64', help='Phone model / evidence of ARM64 support (required for ARM64-only)')
     parser.add_argument('--sdk', type=Path, help='Android SDK; otherwise ANDROID_HOME/ANDROID_SDK_ROOT')
@@ -449,7 +488,8 @@ def main():
         output = (args.output or state / 'apks').expanduser().resolve()
         output.mkdir(parents=True, exist_ok=True)
         name = f"t3code-nightly-{source['sha'][:12]}-{args.abi.replace(',', '_')}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        apk = output / (name + '.apk')
+        destination = output / (name + '.apk')
+        apk = Path(metro_tmp) / 'signed.apk'
         aligned = Path(metro_tmp) / 'aligned.apk'
         run([tools / 'zipalign', '-P', '16', '-f', '4', candidates[0], aligned], env=env)
         run([tools / 'apksigner', 'sign', '--v4-signing-enabled', 'false', '--ks', key, '--ks-key-alias', 'nightly',
@@ -499,8 +539,9 @@ def main():
         receipts.mkdir(exist_ok=True)
         receipt_path = receipts / (name + '.receipt.json')
         write_json(receipt_path, receipt)
-        print(f"APK: {apk}\nReceipt: {receipt_path}\n"
-              f"Bytes: {apk.stat().st_size}\nDuration: {receipt['totalSeconds']}s total; "
+        send_apk(apk, candidates[0], destination, state / 'apks', args.taildrop_target)
+        print(f"Taildrop: {args.taildrop_target}\nReceipt: {receipt_path}\n"
+              f"Bytes: {receipt['bytes']}\nDuration: {receipt['totalSeconds']}s total; "
               f"{receipt['gradleSeconds']}s Gradle ({cache_state})", flush=True)
 
 

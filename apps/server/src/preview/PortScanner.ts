@@ -88,6 +88,7 @@ export interface AgentCommandStopWatcher {
 const PORT_DISCOVERY_ENV = "T3CODE_PORT_DISCOVERY";
 
 const POLL_INTERVAL = Duration.seconds(3);
+const IDLE_POLL_INTERVAL = Duration.seconds(15);
 const LSOF_TIMEOUT_MS = 5_000;
 const PROC_FD_WALK_LIMIT = 50_000;
 const SOCKET_OWNER_ATTEMPTS = 3;
@@ -529,6 +530,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   const agentThreadsRef = yield* Ref.make<ReadonlyMap<number, ThreadId | null>>(new Map());
   const agentCommandStopWatchers = new Set<AgentCommandStopWatcher>();
   let runningAgents = 0;
+  let nextPollAt = 0;
   // An agent that exited, or a cache cleared with a marked listener, owes one listener read: the
   // servers it left may still run. So does startup, for agents that ran before a restart.
   let agentScanPending = true;
@@ -964,6 +966,9 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
       yield* Effect.forEach(notifications, ([listener, servers]) => listener(servers), {
         discard: true,
       });
+      nextPollAt =
+        (yield* Clock.currentTimeMillis) +
+        Duration.toMillis(notifications.length > 0 ? POLL_INTERVAL : IDLE_POLL_INTERVAL);
     },
     Effect.catchCause((cause: Cause.Cause<never>) =>
       Effect.logWarning("preview port scan failed", Cause.pretty(cause)),
@@ -971,7 +976,15 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   );
 
   const pollIfRetained = Ref.get(stateRef).pipe(
-    Effect.flatMap((state) => (state.retainCount > 0 ? pollTick() : Effect.void)),
+    Effect.flatMap((state) =>
+      state.retainCount > 0
+        ? Clock.currentTimeMillis.pipe(
+            Effect.flatMap((now) =>
+              runningAgents > 0 || now >= nextPollAt ? pollTick() : Effect.void,
+            ),
+          )
+        : Effect.void,
+    ),
   );
   yield* Effect.forkScoped(pollIfRetained.pipe(Effect.repeat(Schedule.spaced(POLL_INTERVAL))));
 
@@ -1045,6 +1058,8 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
         }
         return { ...state, terminalProcesses };
       });
+      nextPollAt = 0;
+      yield* pollIfRetained;
     });
 
   const unregisterTerminal: PortDiscovery["Service"]["unregisterTerminal"] = Effect.fn(
@@ -1059,12 +1074,14 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
 
   const trackAgent: PortDiscovery["Service"]["trackAgent"] = () => {
     runningAgents += 1;
+    nextPollAt = 0;
     let released = false;
     return () => {
       if (released) return;
       released = true;
       runningAgents -= 1;
       agentScanPending = true;
+      nextPollAt = 0;
     };
   };
 

@@ -1935,7 +1935,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       readonly knownOriginDefaultBranch?: string | null;
     },
   ) {
-    const configuredBaseRef = yield* readConfigValue(cwd, `branch.${refName}.t3-merge-base-ref`);
+    const escapedBranch = refName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const config = yield* runGitStdout(
+      "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
+      cwd,
+      [
+        "config",
+        "--null",
+        "--get-regexp",
+        `^branch\\.${escapedBranch}\\.(t3-merge-base-ref|t3-merge-base|gh-merge-base)$`,
+      ],
+      true,
+    );
+    const values = new Map<string, string>();
+    for (const entry of config.split("\0")) {
+      const separator = entry.indexOf("\n");
+      if (separator < 0) continue;
+      values.set(
+        entry.slice(0, separator).slice(entry.lastIndexOf(".", separator) + 1),
+        entry.slice(separator + 1).trim(),
+      );
+    }
+    const configuredBaseRef = values.get("t3-merge-base-ref");
     if (
       configuredBaseRef?.startsWith("refs/heads/") ||
       configuredBaseRef?.startsWith("refs/remotes/")
@@ -1950,7 +1971,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }
     }
 
-    const configuredBaseBranch = (yield* readBranchBase(cwd, refName)) ?? "";
+    const configuredBaseBranch = values.get("t3-merge-base") || values.get("gh-merge-base") || "";
     const configuredBase = yield* resolveComparisonBaseRef(cwd, configuredBaseBranch);
     if (
       configuredBase !== null &&

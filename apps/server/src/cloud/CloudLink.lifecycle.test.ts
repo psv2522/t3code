@@ -652,7 +652,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
       expect((yield* link.linkState()).linkRevoked).toBe(true);
 
       expect(requests).toHaveLength(1);
-      expect(applyConfigCalls).toEqual([]);
+      expect(applyConfigCalls).toEqual([null]);
       expect(values.has(RELAY_ENVIRONMENT_CREDENTIAL_SECRET)).toBe(true);
       expect(values.has(CLOUD_ENDPOINT_RUNTIME_CONFIG)).toBe(true);
     }).pipe(
@@ -751,6 +751,9 @@ describe("releaseManagedTunnelOnShutdown", () => {
       };
       const { store } = makeMemorySecretStore([
         [CLOUD_ENDPOINT_RUNTIME_CONFIG, configJson],
+        [CLOUD_LINKED_USER_ID, "user-123"],
+        [RELAY_URL_SECRET, "https://relay.example.test"],
+        [RELAY_ENVIRONMENT_CREDENTIAL_SECRET, "environment-credential"],
         [
           CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
           `{"config":${configJson},"origin":{"localHttpHost":"127.0.0.1","localHttpPort":3773}}`,
@@ -769,6 +772,39 @@ describe("releaseManagedTunnelOnShutdown", () => {
   );
 
   it.effect.each([
+    { name: "signed out", missing: RELAY_ENVIRONMENT_CREDENTIAL_SECRET, revoked: false },
+    { name: "missing account", missing: CLOUD_LINKED_USER_ID, revoked: false },
+    { name: "missing relay", missing: RELAY_URL_SECRET, revoked: false },
+    { name: "revoked", missing: "", revoked: true },
+  ])("does not start a stored connector when $name", ({ missing, revoked }) => {
+    const configJson =
+      '{"providerKind":"cloudflare_tunnel","connectorToken":"existing-token","tunnelId":"existing-tunnel"}';
+    const entries: Array<readonly [string, string]> = [
+      [CLOUD_ENDPOINT_RUNTIME_CONFIG, configJson],
+      [CLOUD_LINKED_USER_ID, "user-123"],
+      [RELAY_URL_SECRET, "https://relay.example.test"],
+      [RELAY_ENVIRONMENT_CREDENTIAL_SECRET, "environment-credential"],
+      [
+        CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
+        `{"config":${configJson},"origin":{"localHttpHost":"127.0.0.1","localHttpPort":3773}}`,
+      ],
+    ];
+    if (revoked) entries.push([CLOUD_LINK_REVOKED, "true"]);
+    const { store } = makeMemorySecretStore(entries.filter(([key]) => key !== missing));
+    const applyConfigCalls: Array<unknown> = [];
+    return Effect.gen(function* () {
+      const link = yield* CloudLink.CloudLink;
+      expect(yield* link.startManagedTunnelIfOriginConfirmed("http://127.0.0.1:3773")).toBe(false);
+      expect(
+        yield* link.startManagedTunnelIfOriginConfirmed("http://127.0.0.1:3773", {
+          requireConfirmedOrigin: false,
+        }),
+      ).toBe(false);
+      expect(applyConfigCalls).toEqual([]);
+    }).pipe(provideReleaseHarness({ store, applyConfigCalls, requests: [] }));
+  });
+
+  it.effect.each([
     { name: "missing", marker: undefined, origin: "http://127.0.0.1:3773" },
     {
       name: "stale",
@@ -782,6 +818,9 @@ describe("releaseManagedTunnelOnShutdown", () => {
         CLOUD_ENDPOINT_RUNTIME_CONFIG,
         '{"providerKind":"cloudflare_tunnel","connectorToken":"existing-token","tunnelId":"existing-tunnel"}',
       ],
+      [CLOUD_LINKED_USER_ID, "user-123"],
+      [RELAY_URL_SECRET, "https://relay.example.test"],
+      [RELAY_ENVIRONMENT_CREDENTIAL_SECRET, "environment-credential"],
     ];
     if (marker !== undefined) entries.push([CLOUD_ENDPOINT_CONFIRMED_ORIGIN, marker]);
     const { store } = makeMemorySecretStore(entries);
@@ -807,6 +846,9 @@ describe("releaseManagedTunnelOnShutdown", () => {
       };
       const { store } = makeMemorySecretStore([
         [CLOUD_ENDPOINT_RUNTIME_CONFIG, JSON.stringify(config)],
+        [CLOUD_LINKED_USER_ID, "user-123"],
+        [RELAY_URL_SECRET, "https://relay.example.test"],
+        [RELAY_ENVIRONMENT_CREDENTIAL_SECRET, "environment-credential"],
       ]);
       const applyConfigCalls: Array<unknown> = [];
       const requests: Array<HttpClientRequest.HttpClientRequest> = [];
@@ -1025,7 +1067,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
       expect(error).toMatchObject({ _tag: "RelayRequestError", rejection });
       expect(CloudLink.shouldRetryCloudLink(error)).toBe(false);
       expect(requests).toHaveLength(1);
-      expect(applyConfigCalls).toEqual([]);
+      expect(applyConfigCalls).toEqual(status === 401 ? [null] : []);
     }).pipe(
       provideReleaseHarness({
         store,

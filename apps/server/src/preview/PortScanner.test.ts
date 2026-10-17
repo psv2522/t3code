@@ -112,6 +112,37 @@ const layerLsofScanner = (input: {
     ),
   );
 
+effectIt.effect(
+  "backs off unchanged listener scans and stays responsive during agent activity",
+  () => {
+    let scans = 0;
+    const layer = layerLsofScanner({
+      pid: () => 1234,
+      stdout: () => {
+        scans += 1;
+        return `p1234\ncnode\nn*:${LSOF_TEST_PORT}\n`;
+      },
+      fetch: (() =>
+        Promise.resolve(
+          new Response("ok", { headers: { "content-type": "text/html" } }),
+        )) as typeof fetch,
+    });
+    return Effect.gen(function* () {
+      const scanner = yield* ownedScanner();
+      yield* scanner.retain;
+      expect(scans).toBe(1);
+      yield* TestClock.adjust(Duration.seconds(12));
+      expect(scans).toBe(1);
+      yield* TestClock.adjust(Duration.seconds(3));
+      expect(scans).toBe(2);
+      const release = scanner.trackAgent();
+      yield* TestClock.adjust(Duration.seconds(3));
+      expect(scans).toBe(3);
+      release();
+    }).pipe(Effect.scoped, Effect.provide(layer));
+  },
+);
+
 effectIt.effect("keeps a full configured URL when the discovered server root fails", () => {
   const requests: string[] = [];
   const configuredUrl = `http://localhost:${LSOF_TEST_PORT}/docs`;
@@ -281,7 +312,7 @@ effectIt.effect("stops probing a subscriber's configured paths after its scope c
     yield* Scope.close(docsScope, Exit.void);
 
     requests.length = 0;
-    yield* TestClock.adjust(Duration.seconds(15));
+    yield* TestClock.adjust(Duration.seconds(18));
     expect(requests).toContain(adminUrl);
     expect(requests).not.toContain(docsUrl);
   }).pipe(Effect.scoped, Effect.provide(layer));

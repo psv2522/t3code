@@ -650,6 +650,21 @@ const make = Effect.gen(function* () {
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("generate-link-proof")),
   );
 
+  const hasStoredManagedLink = Effect.gen(function* () {
+    const [user, relay, credential, revoked] = yield* Effect.all([
+      secrets.get(CLOUD_LINKED_USER_ID),
+      secrets.get(RELAY_URL_SECRET),
+      secrets.get(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
+      secrets.get(CLOUD_LINK_REVOKED),
+    ]);
+    return (
+      Option.isSome(user) &&
+      Option.isSome(relay) &&
+      Option.isSome(credential) &&
+      Option.isNone(revoked)
+    );
+  });
+
   const activateManagedTunnel = Effect.fn("environment.cloud.activateManagedTunnel")(
     function* (input: {
       readonly config: RelayManagedEndpointRuntimeConfig;
@@ -661,7 +676,8 @@ const make = Effect.gen(function* () {
           const currentConfig = yield* secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG);
           if (
             Option.isNone(currentConfig) ||
-            bytesToString(currentConfig.value) !== input.configJson
+            bytesToString(currentConfig.value) !== input.configJson ||
+            !(yield* hasStoredManagedLink)
           ) {
             return null;
           }
@@ -721,6 +737,7 @@ const make = Effect.gen(function* () {
     });
     return yield* endpointRuntime.withLinkStateLock(
       Effect.gen(function* () {
+        if (!(yield* hasStoredManagedLink)) return false;
         const [runtimeBytes, markerBytes] = yield* Effect.all([
           secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),
           secrets.get(CLOUD_ENDPOINT_CONFIRMED_ORIGIN),
@@ -980,6 +997,7 @@ const make = Effect.gen(function* () {
           { cause },
         );
         yield* secrets.set(CLOUD_LINK_REVOKED, stringToBytes("true"));
+        yield* endpointRuntime.applyConfig(null);
         return true;
       }),
     );

@@ -1308,6 +1308,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
     };
     let scansCwd = true;
     let registryProviders: ReadonlyArray<ServerProvider> = [provider];
+    let limitsRefreshes = 0;
     const providerChanges = yield* Queue.unbounded<ReadonlyArray<ServerProvider>>();
     const pulled = yield* Queue.unbounded<void>();
     const responses = yield* Queue.unbounded<unknown>();
@@ -1324,6 +1325,11 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
         ),
         refresh: () => Effect.sync(() => registryProviders),
         refreshWorkspaceSnapshot: () => Effect.sync(() => registryProviders),
+        refreshLimits: () =>
+          Effect.sync(() => {
+            limitsRefreshes += 1;
+            return registryProviders;
+          }),
       }),
       Layer.mock(ProjectService.ProjectService)({
         workspaceScanDirectory: (cwd) => Effect.succeed(cwd),
@@ -1460,6 +1466,18 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
     assert.deepEqual(replaced.payload.providers[0]?.slashCommands, provider.slashCommands);
     assert.deepEqual(replaced.payload.providers[0]?.skills, provider.skills);
 
+    yield* server.write(0, {
+      _tag: "Request",
+      id: RpcMessage.RequestId("refresh-limits"),
+      tag: WS_METHODS.serverRefreshProviders,
+      payload: { limitsOnly: true },
+      headers: Headers.empty,
+    });
+    const limitsRefreshed = (yield* Queue.take(responses)) as {
+      readonly providers: ReadonlyArray<ServerProvider>;
+    };
+    assert.equal(limitsRefreshes, 1);
+    assert.isUndefined(limitsRefreshed.providers[0]?.workspaceSnapshots);
     yield* server.write(0, {
       _tag: "Request",
       id: RpcMessage.RequestId("refresh"),

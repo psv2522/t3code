@@ -846,12 +846,25 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
         return code >= 0x20 || code === 0x09 || code === 0x0a || code === 0x0d;
       }),
   );
+  const stableInstallerDirectories = yield* Effect.forEach(
+    xmlSafeInstallerDirectories,
+    (directory) => {
+      const parts = directory.split("/");
+      const index = parts.indexOf("fnm_multishells");
+      if (index < 0 || index + 1 >= parts.length) return Effect.succeed(directory);
+      const link = parts.slice(0, index + 2).join("/");
+      return fs.readLink(link).pipe(
+        Effect.map((target) => path.resolve(path.dirname(link), target, ...parts.slice(index + 2))),
+        Effect.orElseSucceed(() => directory),
+      );
+    },
+  );
   // During an update, the running CLI and a PATH inherited from the service name the runtime
   // being replaced. The service and its agent shells should find the runtime it starts.
   const environmentPath = Array.from(
     new Set(
       [
-        ...xmlSafeInstallerDirectories,
+        ...stableInstallerDirectories,
         path.dirname(host.execPath),
         "/opt/homebrew/bin",
         "/usr/local/bin",

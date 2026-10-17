@@ -330,6 +330,27 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     snapshot.auth.status === "authenticated" &&
     snapshot.usageLimits?.unavailable?.reason === "probeFailed";
 
+  const refreshLimits = input.checkUsageLimits
+    ? refreshSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const { snapshot } = yield* Ref.get(snapshotStateRef);
+          if (!snapshot.enabled || !snapshot.installed || snapshot.auth.status !== "authenticated")
+            return;
+          yield* input.invalidateUsageCache ?? Effect.void;
+          const probed = yield* input.checkUsageLimits!;
+          const next = yield* Ref.modify(snapshotStateRef, (state) => {
+            const usageLimits = resolveUsageLimitsAfterProbe({
+              published: state.snapshot.usageLimits,
+              probed,
+            });
+            const updated = withUsageLimits(state.snapshot, usageLimits);
+            return [updated, { ...state, snapshot: updated }] as const;
+          });
+          yield* PubSub.publish(changesPubSub, next);
+        }),
+      )
+    : refreshUsage();
+
   const needsProviderRefresh = (snapshot: ServerProvider) =>
     input.refreshOnInterval !== false &&
     (typeof input.refreshOnInterval !== "function" || input.refreshOnInterval(snapshot));
@@ -460,6 +481,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       .pipe(Effect.andThen(refreshSnapshot), Effect.tapError(Effect.logError), Effect.orDie),
     applyUsageLimits,
     refreshUsage: refreshUsage(),
+    refreshLimits,
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);
     },

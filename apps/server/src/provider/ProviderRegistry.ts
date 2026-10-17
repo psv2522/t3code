@@ -7,8 +7,11 @@ import {
   type SecretReference,
   type ServerProvider,
   type ServerProviderUpdateState,
+  type UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
+import { providersCoveredByUsageSources } from "@t3tools/shared/usageLimits";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -64,6 +67,10 @@ export class ProviderRegistry extends Context.Service<
     /** Unknown instance ids return the cached list without error. */
     readonly refreshInstance: (
       instanceId: ProviderInstanceId,
+    ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    readonly refreshLimits: (
+      sources: UsageLimitSourceSnapshots,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
     /** Re-reads secret-backed environments first, so a fixed secret applies without a restart. */
@@ -751,6 +758,28 @@ export const layer = Layer.effect(
       return yield* refreshOneSource(instance);
     });
 
+    const refreshLimits = Effect.fn("ProviderRegistry.refreshLimits")(function* (
+      sources: UsageLimitSourceSnapshots,
+    ) {
+      yield* syncLiveSourcesAndContinue;
+      const instances = yield* Ref.get(liveSubsRef);
+      const skip = providersCoveredByUsageSources(
+        yield* Ref.get(providersRef),
+        sources,
+        yield* Clock.currentTimeMillis,
+      );
+      yield* Effect.forEach(
+        instances.values(),
+        (instance) =>
+          (skip.has(instance.instanceId)
+            ? Effect.void
+            : (instance.snapshot.refreshLimits ?? Effect.void)
+          ).pipe(Effect.ignoreCause({ log: true })),
+        { concurrency: "unbounded", discard: true },
+      );
+      return yield* Ref.get(providersRef);
+    });
+
     const reloadSecretsAndRefresh = Effect.fn("reloadSecretsAndRefresh")(function* (
       instanceId?: ProviderInstanceId,
     ) {
@@ -1202,6 +1231,8 @@ export const layer = Layer.effect(
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+      refreshLimits: (sources) =>
+        refreshLimits(sources).pipe(Effect.catchCause(recoverRefreshFailure)),
       reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
         reloadSecretsAndRefresh(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
       applySecretAndRefresh: (reference: SecretReference, value: string) =>

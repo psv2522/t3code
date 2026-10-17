@@ -295,13 +295,13 @@ python3 scripts/build-android-apk.py \
 
 Build for arm64 only: pass `-PreactNativeArchitectures=arm64-v8a` to Gradle. The builder uses cached PDFium from `~/.cache/t3-android/pdfium` when present; see the Android APK guide. Run the build detached with `nohup` so a T3 server restart does not kill it.
 
-Leave `--output` unset so the final APK stays in `~/.cache/t3-android/apks`. After a successful build and validation, send the exact file printed on the builder's `APK:` line to the owner's realme phone through Taildrop:
+Leave `--output` unset. After validation the builder sends the APK to the owner's realme phone through Taildrop and deletes it on success. If the transfer fails, it keeps one APK at the printed path for retry:
 
 ```sh
-tailscale file cp "<APK path>" prathmesh-android:
+tailscale file cp "<APK path>" prathmesh-android: && rm -f -- "<APK path>"
 ```
 
-Confirm the phone's current destination with `tailscale file cp --targets` if needed. Report transfer failures and keep the cached APK for retry. Do not copy or move build artifacts into the Mac's Downloads folder.
+Confirm the phone's current destination with `tailscale file cp --targets` if needed. Report transfer failures and keep the cached APK for retry; delete it after a successful retry. Do not copy or move build artifacts into the Mac's Downloads folder.
 
 The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB Mac with two Gradle workers, a 3 GiB heap, in-process Kotlin, and Java 17 toolchains provisioned by Gradle. Preserve upstream minification, resource shrinking, the uncompressed Hermes bundle, compressed native libraries, disabled over-the-air updates, and the persistent signing identity under `~/.cache/t3-android/signing`. Do not substitute the former 8 GiB heap workaround or run Gradle clean routinely. Follow [Local Nightly Android APK](docs/operations/android-apk.md) for cache preservation, fresh Metro temp directories, revision selection, and validation. Send only the APK through Taildrop. Keep receipts under `~/.cache/t3-android/receipts`; disable v4 signing so no `.idsig` sidecar is generated. Phone installation and launch remain unverified until actually tested; never uninstall an app or erase data automatically.
 

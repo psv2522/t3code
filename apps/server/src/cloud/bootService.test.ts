@@ -1577,6 +1577,23 @@ process.disconnect();
     }),
   );
 
+  it.effect("keeps the selected fnm installation without an ephemeral multishell path", () =>
+    Effect.gen(function* () {
+      const { makeService, fs, home } = yield* makeHarness("darwin");
+      const path = yield* Path.Path;
+      const installation = path.join(home, ".local/share/fnm/node-versions/v24/installation");
+      const multishell = path.join(home, ".local/state/fnm_multishells/123_456");
+      yield* fs.makeDirectory(path.join(installation, "bin"), { recursive: true });
+      yield* fs.makeDirectory(path.dirname(multishell), { recursive: true });
+      yield* fs.symlink(installation, multishell);
+      const service = yield* makeService(`${multishell}/bin:/usr/bin`);
+      const plan = yield* service.install();
+      const plist = yield* fs.readFileString(plan.unitPath);
+      expect(plist).toContain(`${installation}/bin:/usr/bin`);
+      expect(plist).not.toContain("fnm_multishells");
+    }),
+  );
+
   it.effect("keeps an installed launch agent current when the process PATH changes", () =>
     Effect.gen(function* () {
       const { service, makeService } = yield* makeHarness("darwin");

@@ -142,6 +142,39 @@ const enrichedSnapshotSecond: ServerProvider = {
 };
 
 describe("makeManagedServerProvider", () => {
+  it.effect(
+    "refreshes limits without restarting a provider when a separate quota reader exists",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const checks = yield* Ref.make(0);
+          const initial = {
+            ...refreshedSnapshot,
+            usageLimits: { checkedAt: refreshedSnapshot.checkedAt, windows: [] },
+          };
+          const provider = yield* makeManagedServerProvider<TestSettings>({
+            resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+            getSettings: Effect.succeed({ enabled: true }),
+            streamSettings: Stream.empty,
+            haveSettingsChanged: () => false,
+            initialSnapshot: () => Effect.succeed(initial),
+            checkProvider: Ref.update(checks, (n) => n + 1).pipe(Effect.as(initial)),
+            checkUsageLimits: Effect.succeed({
+              checkedAt: "2026-04-10T00:00:05.000Z",
+              windows: [{ id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 35 }],
+            }),
+            refreshOnInterval: false,
+          });
+          yield* provider.streamChanges.pipe(Stream.take(1), Stream.runDrain);
+          yield* provider.refreshLimits!;
+          assert.strictEqual(yield* Ref.get(checks), 1);
+          assert.strictEqual(
+            (yield* provider.getSnapshot).usageLimits?.windows[0]?.usedPercent,
+            35,
+          );
+        }),
+      ).pipe(Effect.provide(layerAlwaysRunTest)),
+  );
   it.effect("invalidates cached usage and queues one refresh behind an in-flight refresh", () =>
     Effect.scoped(
       Effect.gen(function* () {

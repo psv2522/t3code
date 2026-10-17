@@ -16,6 +16,8 @@ import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
   collectLimitAccounts,
+  findProviderLimitAccount,
+  providersCoveredByUsageSources,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
@@ -291,6 +293,9 @@ describe("pools", () => {
       ],
     });
     expect(accounts[0]?.limits.windows[0]?.usedPercent).toBe(55);
+    expect(
+      findProviderLimitAccount(input, EnvironmentId.make("env-a"), native.instanceId)?.limits,
+    ).toEqual(accounts[0]?.limits);
   });
 
   it("uses the freshest reported plan even when the newest quota has no plan", () => {
@@ -480,6 +485,27 @@ describe("pools", () => {
     ]);
     const [account] = collectLimitAccounts(input);
     expect(account?.limits.windows[0]?.usedPercent).toBe(55);
+    expect(
+      findProviderLimitAccount(input, EnvironmentId.make("env-a"), native.instanceId)?.limits,
+    ).toEqual(account?.limits);
+    expect(
+      providersCoveredByUsageSources(
+        [native],
+        input.get(EnvironmentId.make("env-a"))!.serverConfig.usageLimitSources ?? [],
+        Date.parse("2026-09-03T11:31:00Z"),
+      ),
+    ).toEqual(new Set([native.instanceId]));
+    const hub = input.get(EnvironmentId.make("env-a"))!.serverConfig.usageLimitSources;
+    expect(
+      providersCoveredByUsageSources([native], hub, Date.parse("2026-09-03T11:36:00Z")),
+    ).toEqual(new Set());
+    expect(
+      providersCoveredByUsageSources(
+        [native],
+        [{ ...hub[0]!, error: "unavailable" }],
+        Date.parse("2026-09-03T11:31:00Z"),
+      ),
+    ).toEqual(new Set());
     expect(account?.limits.resetCredits?.availableCount).toBe(2);
     expect(account?.redeem).toEqual({ environmentId: "env-a", input: { instanceId: "claude" } });
     expect(account?.environments).toEqual([{ environmentId: "env-a", label: "Laptop" }]);
@@ -666,6 +692,27 @@ describe("pools", () => {
       "hub:x.json",
     ]);
     expect(accounts[0]?.limits.windows[0]?.usedPercent).toBe(8);
+    expect(
+      providersCoveredByUsageSources(
+        input.get(EnvironmentId.make("env-a"))!.serverConfig.providers,
+        input.get(EnvironmentId.make("env-a"))!.serverConfig.usageLimitSources ?? [],
+        Date.parse(checkedAt),
+      ),
+    ).toEqual(new Set([ProviderInstanceId.make("personal")]));
+    expect(
+      findProviderLimitAccount(
+        input,
+        EnvironmentId.make("env-a"),
+        ProviderInstanceId.make("business"),
+      )?.limits.windows[0]?.usedPercent,
+    ).toBe(8);
+    expect(
+      findProviderLimitAccount(
+        input,
+        EnvironmentId.make("env-a"),
+        ProviderInstanceId.make("personal"),
+      )?.limits.windows[0]?.usedPercent,
+    ).toBe(26);
     const withoutEmail = (id: string, workspaceId: string) => {
       const { email: _email, ...account } = hubAccount(id, workspaceId);
       return account;

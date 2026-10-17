@@ -30,19 +30,21 @@ comma-separated ABI names; ARM64-only builds require `--confirm-arm64` evidence.
 Neither mode incorporates uncommitted source changes. A dirty build checkout
 stops the script; it never stashes or resets unrelated work.
 
-Leave `--output` unset to keep the final APK in `<state-dir>/apks` (normally
-`~/.cache/t3-android/apks`). After the builder finishes successfully, send the
-exact file printed on its `APK:` line to the owner's realme phone with Taildrop.
-Replace `<APK path>` below with that file's full path:
+The builder sends the validated APK to the owner's realme phone through Taildrop,
+then deletes the APK after a successful transfer. If the transfer fails, it keeps
+one APK at the printed path for retry. Leave `--output` unset to use
+`<state-dir>/apks` (normally `~/.cache/t3-android/apks`), or pass another
+directory. To retry a failed transfer:
 
 ```sh
-tailscale file cp "<APK path>" prathmesh-android:
+tailscale file cp "<APK path>" prathmesh-android: && rm -f -- "<APK path>"
 ```
 
-`prathmesh-android` is the phone's Tailscale name; `tailscale file cp --targets`
-lists current destinations. Send only the APK. Keep it cached for retries and
-report a failed transfer. Do not copy or move build artifacts into the Mac's
-Downloads folder. Receipts stay in `<state-dir>/receipts`, and v4 signing is
+`prathmesh-android` is the default phone's Tailscale name; pass
+`--taildrop-target` to select another destination. `tailscale file cp --targets`
+lists current destinations. Delete the retained APK after a successful retry.
+Do not copy or move build artifacts into the Mac's Downloads folder. Receipts stay
+in `<state-dir>/receipts`, and v4 signing is
 disabled to avoid `.idsig` sidecars.
 The default persistent state is `~/.cache/t3-android`. It contains pinned
 Node/pnpm downloads, a Gradle user cache, a private signing identity, and APKs.
