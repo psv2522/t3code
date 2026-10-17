@@ -1,6 +1,7 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { managedUpdatesDenial } from "@t3tools/client-runtime/contract-labels";
 import { type DesktopBridge, type DesktopUpdateState } from "@t3tools/contracts";
+import { describeP2codeUpdate } from "@t3tools/client-runtime/p2codeUpdate";
 import { TriangleAlertIcon } from "lucide-react";
 import { msg, T, useGT, useMessages } from "gt-react";
 import { type ComponentProps, useId, useRef, useState } from "react";
@@ -40,6 +41,11 @@ import {
   shouldContinueDesktopUpdateCheckAnimation,
   shouldShowDesktopUpdateCheckIcon,
 } from "./DesktopUpdateStatusIcon";
+import {
+  checkAndStartP2codeUpdate,
+  useP2codeAvailable,
+  useP2codeUpdateProgress,
+} from "./p2codeUpdate";
 import { SidebarUpdateReleaseNotes } from "./SidebarUpdateReleaseNotes";
 import { SidebarUpdateCapsule } from "./SidebarUpdateCapsule";
 import { UpdateEverythingDialog } from "./UpdateEverythingDialog";
@@ -207,6 +213,8 @@ function SidebarUpdateControl() {
   const messages = useMessages();
   // The desktop updates this machine, whose policy the primary environment reports.
   const updatesDenial = managedUpdatesDenial(usePrimaryManagedPolicy(), messages);
+  const p2codeAvailable = useP2codeAvailable();
+  const p2codeProgress = useP2codeUpdateProgress();
   const [isActionPending, setIsActionPending] = useState(false);
   const [providerCheck, setProviderCheck] = useState<"button" | "dialog" | null>(null);
   const isCheckingProviders = providerCheck === "button";
@@ -253,30 +261,35 @@ function SidebarUpdateControl() {
     action,
     showsEverything: runsEverything,
     run,
-    isDownloading,
+    isDownloading: isDownloading || p2codeProgress !== null,
     showCheckIcon,
   });
   const idleTooltip =
     !showUpdateDetails && !showCheckIcon
       ? getDesktopUpdateIdleTooltip(state, updatesDenial, messages)
       : null;
-  const tooltip = runsEverything
-    ? everything.summary
-    : showUpdateDetails
-      ? state
-        ? getDesktopUpdateButtonTooltip(state, messages)
-        : gt("Update available")
-      : showCheckIcon
-        ? gt("Checking for updates…")
-        : (idleTooltip?.title ?? gt("Check for updates"));
+  const p2codeStatus = p2codeProgress === null ? null : describeP2codeUpdate(p2codeProgress);
+  const tooltip =
+    p2codeProgress !== null
+      ? (p2codeStatus ?? gt("Updating…"))
+      : runsEverything
+        ? everything.summary
+        : showUpdateDetails
+          ? state
+            ? getDesktopUpdateButtonTooltip(state, messages)
+            : gt("Update available")
+          : showCheckIcon
+            ? gt("Checking for updates…")
+            : (idleTooltip?.title ?? gt("Check for updates"));
   const disabled = showCheckIcon
     ? true
     : runsEverything
       ? false
       : showUpdateDetails
         ? isDesktopUpdateButtonDisabled(state)
-        : !canCheckForUpdate(state);
-  const isInteractionDisabled = disabled || isActionPending || isRunningEverything;
+        : !(p2codeAvailable || canCheckForUpdate(state));
+  const isInteractionDisabled =
+    disabled || isActionPending || isRunningEverything || p2codeProgress !== null;
   const showReleaseNotesPopover =
     !isRunningEverything && shouldUseSidebarUpdateReleaseNotesPopover(showUpdateDetails, state);
 
@@ -341,6 +354,10 @@ function SidebarUpdateControl() {
     if (!prefersReducedMotion) {
       setIsCheckAnimationLatched(true);
       setCheckAnimationKey((key) => key + 1);
+    }
+    if (p2codeAvailable) {
+      void checkAndStartP2codeUpdate().finally(() => setIsActionPending(false));
+      return;
     }
     const appCheck = bridge
       .checkForUpdate()

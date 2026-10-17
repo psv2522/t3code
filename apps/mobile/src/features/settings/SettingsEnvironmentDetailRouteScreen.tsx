@@ -34,6 +34,7 @@ import { useRemoteConnections } from "../../state/use-remote-environment-registr
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
 import { EnvironmentRoutesSection } from "./EnvironmentRoutesSection";
 import { OutdatedServerUpdateSection } from "./OutdatedServerUpdateSection";
+import { P2codeUpdateSection } from "./P2codeUpdateSection";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -254,93 +255,103 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
             {notice ? <Text className="px-2 text-sm text-foreground-muted">{notice}</Text> : null}
             {config && !outdated ? (
               <>
-                <SettingsSection title="T3 Code">
-                  <View className="gap-1 p-4">
-                    <Text className="text-base text-foreground">
-                      <T>
-                        Version <Var>{version}</Var>
-                      </T>
-                    </Text>
-                    {managedPolicy ? (
-                      <Text className="text-sm text-foreground-muted">
+                {capabilities?.p2codeUpdate === true ? (
+                  <P2codeUpdateSection
+                    environmentId={environmentId}
+                    label={environment.environmentLabel}
+                    version={version}
+                    connected={connected}
+                    allowed={allowed}
+                  />
+                ) : (
+                  <SettingsSection title="T3 Code">
+                    <View className="gap-1 p-4">
+                      <Text className="text-base text-foreground">
                         <T>
-                          Managed by <Var>{managedPolicy.organization}</Var>
+                          Version <Var>{version}</Var>
                         </T>
                       </Text>
+                      {managedPolicy ? (
+                        <Text className="text-sm text-foreground-muted">
+                          <T>
+                            Managed by <Var>{managedPolicy.organization}</Var>
+                          </T>
+                        </Text>
+                      ) : null}
+                      {updatesDenial ? (
+                        <Text className="text-sm text-foreground-muted">{updatesDenial}</Text>
+                      ) : null}
+                      {running ? (
+                        <Text className="text-sm text-foreground-muted">
+                          {updateState.stage === "resuming"
+                            ? gt("Restarting and reconnecting…")
+                            : gt("Downloading update…")}
+                        </Text>
+                      ) : updateState.status === "failed" ? (
+                        <Text selectable className="text-sm text-danger-foreground">
+                          {serverUpdateFailureText(updateState, messages)}
+                        </Text>
+                      ) : null}
+                      {checkedRelease && !updatesDenial ? (
+                        <Text className="text-sm text-foreground-muted">
+                          {checkedRelease.targetVersion
+                            ? gt("Version {version} is available.", {
+                                version: checkedRelease.targetVersion,
+                              })
+                            : gt("You are up to date.")}
+                        </Text>
+                      ) : null}
+                      {checkedRelease?.targetVersion &&
+                      !updatesDenial &&
+                      !supportsEnvironmentUpdate(config.environment.capabilities) ? (
+                        <Text className="text-sm text-foreground-muted">
+                          {capabilities?.serverSelfUpdate === "desktop-managed"
+                            ? gt("Update the desktop app on this machine.")
+                            : gt("Update and restart {product} on this machine.", {
+                                product: "T3 Code",
+                              })}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {supportUrl ? (
+                      <SettingsActionRow
+                        icon="questionmark.bubble"
+                        label={gt("Get help from {organization}", {
+                          organization: managedPolicy.organization,
+                        })}
+                        onPress={() => void tryOpenExternalUrl(supportUrl)}
+                      />
                     ) : null}
-                    {updatesDenial ? (
-                      <Text className="text-sm text-foreground-muted">{updatesDenial}</Text>
-                    ) : null}
-                    {running ? (
-                      <Text className="text-sm text-foreground-muted">
-                        {updateState.stage === "resuming"
-                          ? gt("Restarting and reconnecting…")
-                          : gt("Downloading update…")}
-                      </Text>
-                    ) : updateState.status === "failed" ? (
-                      <Text selectable className="text-sm text-danger-foreground">
-                        {serverUpdateFailureText(updateState, messages)}
-                      </Text>
-                    ) : null}
-                    {checkedRelease && !updatesDenial ? (
-                      <Text className="text-sm text-foreground-muted">
-                        {checkedRelease.targetVersion
-                          ? gt("Version {version} is available.", {
-                              version: checkedRelease.targetVersion,
-                            })
-                          : gt("You are up to date.")}
-                      </Text>
-                    ) : null}
+                    {updatesDenial ? null : (
+                      <SettingsActionRow
+                        icon="arrow.clockwise"
+                        label={gt("Check for updates")}
+                        disabled={disabled}
+                        loading={pending === "check"}
+                        onPress={() => {
+                          if (disabled) return;
+                          const fromVersion = config.environment.serverVersion;
+                          void run("check", async () => {
+                            const exit = await checkRelease(async () => fromVersion);
+                            // `run` owns the error message, so a failed lookup rethrows to it.
+                            if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
+                          });
+                        }}
+                      />
+                    )}
                     {checkedRelease?.targetVersion &&
                     !updatesDenial &&
-                    !supportsEnvironmentUpdate(config.environment.capabilities) ? (
-                      <Text className="text-sm text-foreground-muted">
-                        {capabilities?.serverSelfUpdate === "desktop-managed"
-                          ? gt("Update the desktop app on this machine.")
-                          : gt("Update and restart {product} on this machine.", {
-                              product: "T3 Code",
-                            })}
-                      </Text>
+                    supportsEnvironmentUpdate(config.environment.capabilities) ? (
+                      <SettingsActionRow
+                        icon="arrow.up.circle"
+                        label={gt("Update to {version}", { version: checkedRelease.targetVersion })}
+                        disabled={disabled}
+                        loading={pending === "server" || running}
+                        onPress={requestServerUpdate}
+                      />
                     ) : null}
-                  </View>
-                  {supportUrl ? (
-                    <SettingsActionRow
-                      icon="questionmark.bubble"
-                      label={gt("Get help from {organization}", {
-                        organization: managedPolicy.organization,
-                      })}
-                      onPress={() => void tryOpenExternalUrl(supportUrl)}
-                    />
-                  ) : null}
-                  {updatesDenial ? null : (
-                    <SettingsActionRow
-                      icon="arrow.clockwise"
-                      label={gt("Check for updates")}
-                      disabled={disabled}
-                      loading={pending === "check"}
-                      onPress={() => {
-                        if (disabled) return;
-                        const fromVersion = config.environment.serverVersion;
-                        void run("check", async () => {
-                          const exit = await checkRelease(async () => fromVersion);
-                          // `run` owns the error message, so a failed lookup rethrows to it.
-                          if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
-                        });
-                      }}
-                    />
-                  )}
-                  {checkedRelease?.targetVersion &&
-                  !updatesDenial &&
-                  supportsEnvironmentUpdate(config.environment.capabilities) ? (
-                    <SettingsActionRow
-                      icon="arrow.up.circle"
-                      label={gt("Update to {version}", { version: checkedRelease.targetVersion })}
-                      disabled={disabled}
-                      loading={pending === "server" || running}
-                      onPress={requestServerUpdate}
-                    />
-                  ) : null}
-                </SettingsSection>
+                  </SettingsSection>
+                )}
                 <SettingsSection title={gt("Providers")}>
                   <SettingsActionRow
                     icon="arrow.clockwise"

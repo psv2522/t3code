@@ -21,6 +21,7 @@ import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
+import type * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import {
   Cookies,
@@ -30,7 +31,8 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "effect/http";
-import { RpcClient, RpcSerialization } from "effect/rpc";
+import { ChildProcessSpawner } from "effect/process";
+import { RpcClient, RpcClientError, RpcSerialization } from "effect/rpc";
 import { Socket } from "effect/socket";
 
 import { APP_DIR, T3_HOME } from "../e2e.config.ts";
@@ -296,8 +298,17 @@ export const environmentId = (baseUrl: string) =>
     Effect.provide(FetchHttpClient.layer),
   );
 
+type ScenarioRpcClient = RpcClient.FromGroup<typeof WsRpcGroup, RpcClientError.RpcClientError>;
+
 /** The typed RPC client of the server on `home` at `origin`, signed in through its own CLI. */
-export const rpcClient = Effect.fn("scenario.rpcClient")(function* (home: string, origin: string) {
+export const rpcClient: (
+  home: string,
+  origin: string,
+) => Effect.Effect<
+  ScenarioRpcClient,
+  HttpClientError.HttpClientError | ScenarioError | Schema.SchemaError,
+  ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+> = Effect.fn("scenario.rpcClient")(function* (home: string, origin: string) {
   const issued = yield* makeState(home).cli(["auth", "session", "issue", "--token-only"]);
   const { ticket } = yield* HttpClient.execute(
     HttpClientRequest.post(`${origin}/api/auth/websocket-ticket`).pipe(
@@ -320,7 +331,10 @@ export const rpcClient = Effect.fn("scenario.rpcClient")(function* (home: string
       Layer.provide(NodeWS.layerWebSocketConstructor),
     ),
   );
-  return yield* RpcClient.make(WsRpcGroup).pipe(Effect.provideContext(protocol));
+  const client: ScenarioRpcClient = yield* RpcClient.make(WsRpcGroup).pipe(
+    Effect.provideContext(protocol),
+  );
+  return client;
 });
 
 export const test = base.extend<{ t3: T3 }>({

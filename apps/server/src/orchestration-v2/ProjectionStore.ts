@@ -6971,9 +6971,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, ProjectionStoreService
       FROM orchestration_v2_projection_turn_items AS item
       WHERE item.thread_id = ${threadId}
         AND item.type = 'dynamic_tool'
-        AND (item.payload_json LIKE '%htmlRender%'
-          OR item.payload_json LIKE ${`%${MCP_APP_OUTPUT_KEY}%`}
-          OR item.payload_json LIKE '%preview_recording_stop%')
+        AND (
+          instr(item.payload_json, 'htmlRender') > 0
+          OR instr(item.payload_json, ${MCP_APP_OUTPUT_KEY}) > 0
+          OR instr(item.payload_json, 'preview_recording_stop') > 0
+        )
         AND ${runOrdinalBetween("item.run_id", from, through)}
     `,
         sql<{ id: string }>`

@@ -4,6 +4,7 @@ import * as NodeSea from "node:sea";
 import * as NodeURL from "node:url";
 
 import { isEntrypoint } from "./entrypoint.ts";
+import { enableCliCompileCache } from "./cliCompileCache.ts";
 
 // Loads the CLI outside the launcher's module graph. Packaged builds embed it as a raw asset.
 async function loadCliMain(): Promise<typeof import("./binMain.ts")> {
@@ -58,6 +59,9 @@ if (
     const { run } = await import("@effect/platform-node-shared/NodeChildProcessProxy");
     run();
   } else {
+    // The launcher sets this on the server it spawns; dropping it keeps the server's savings while its children start without the wall-time cost.
+    delete process.env.MallocSpaceEfficient;
+    if (NodeSea.isSea()) enableCliCompileCache();
     const { runCliCommand } = await loadCliMain();
     await runCliCommand();
   }

@@ -152,6 +152,7 @@ import {
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 import { acpSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
+import { textSnapshotFlushDelayMs } from "@t3tools/provider-core/server/textSnapshotFlush";
 import {
   isProviderNativeImageAttachment,
   providerMessageTextWithAttachmentPaths,
@@ -238,7 +239,7 @@ function sendPromptWhenIdle<A>(
  * Emit first chunks and segment-close events immediately; coalesce later chunks into full-text snapshots.
  * This avoids quadratic output; scheduled flushes can run late under host load.
  */
-const ACP_TEXT_FLUSH_INTERVAL: Duration.Input = "50 millis";
+const ACP_TEXT_FLUSH_INTERVAL_MS = 50;
 // Subagent messages are stored as finished, so they skip the server's paragraph
 // throttle and every snapshot is persisted. Match that throttle's 400 ms cadence.
 const ACP_SUBAGENT_TEXT_FLUSH_INTERVAL: Duration.Input = "400 millis";
@@ -3869,7 +3870,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         /**
          * Publishes a text change. A segment's first text emits at once so
          * live output starts immediately; later changes coalesce into one
-         * snapshot per ACP_TEXT_FLUSH_INTERVAL. Closing the segment emits its
+         * snapshot per flush interval, which grows with the text. Closing the segment emits its
          * final text and makes a pending flush a no-op.
          */
         const publishTextSegment = Effect.fnUntraced(function* (
@@ -3882,7 +3883,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           if (segment.dirty) return;
           segment.dirty = true;
           yield* emitTextSegment(context, kind, false, segment).pipe(
-            Effect.delay(ACP_TEXT_FLUSH_INTERVAL),
+            Effect.delay(textSnapshotFlushDelayMs(ACP_TEXT_FLUSH_INTERVAL_MS, segment.text.length)),
             Effect.forkIn(sessionScope),
           );
         });
