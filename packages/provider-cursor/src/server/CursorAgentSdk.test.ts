@@ -93,19 +93,21 @@ const cursorSdkMock = vi.hoisted(() => {
   };
 });
 
-vi.mock("./sdk.ts", () => ({
-  Agent: {
-    create: cursorSdkMock.create,
-    resume: cursorSdkMock.resume,
-    listRuns: cursorSdkMock.listRuns,
-    cancelRun: cursorSdkMock.cancelRun,
-    messages: {
-      list: vi.fn(async () => []),
+vi.mock("./sdk.ts", () => {
+  const sdk = {
+    Agent: {
+      create: cursorSdkMock.create,
+      resume: cursorSdkMock.resume,
+      listRuns: cursorSdkMock.listRuns,
+      cancelRun: cursorSdkMock.cancelRun,
+      messages: {
+        list: vi.fn(async () => []),
+      },
     },
-  },
-  createAgentPlatform: vi.fn(),
-  SqliteLocalAgentStore: { open: vi.fn() },
-}));
+    createAgentPlatform: vi.fn(),
+  };
+  return { loadCursorSdk: () => sdk, loadCursorSdkSqlite: vi.fn() };
+});
 
 const layerTest = CursorAgentSdk.layer.pipe(
   Layer.provide(

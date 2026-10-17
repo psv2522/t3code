@@ -13,7 +13,9 @@ import {
   checkCursorProviderStatus,
 } from "./status.ts";
 import * as CursorSdkCatalog from "./CursorSdkCatalog.ts";
-import { CursorSdkError } from "./sdk.ts";
+import { loadCursorSdk } from "./sdk.ts";
+
+const { CursorSdkError } = loadCursorSdk();
 
 const decodeCursorSettings = Schema.decodeSync(CursorSettingsSchema);
 

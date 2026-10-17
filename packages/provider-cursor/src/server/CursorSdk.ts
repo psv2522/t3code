@@ -3,7 +3,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { Agent, createAgentPlatform, SqliteLocalAgentStore } from "./sdk.ts";
+import { loadCursorSdk, loadCursorSdkSqlite } from "./sdk.ts";
 
 // The SDK leaves a shell-error promise unhandled, which would exit the server.
 const CURSOR_SHELL_SPAWN_MARKERS = [
@@ -56,13 +56,15 @@ function onUnhandledRejection(reason: unknown): void {
   process.exit(1);
 }
 
-/** Keeps the shell spawn guard armed while in-process agents run. */
+/**
+ * Keeps the shell spawn guard armed while in-process agents run. `load` and
+ * `loadSqlite` load the SDK on first call; call them when running an agent.
+ */
 export class CursorSdk extends Context.Service<
   CursorSdk,
   {
-    readonly Agent: typeof Agent;
-    readonly createAgentPlatform: typeof createAgentPlatform;
-    readonly SqliteLocalAgentStore: typeof SqliteLocalAgentStore;
+    readonly load: () => Pick<typeof import("@cursor/sdk"), "Agent" | "createAgentPlatform">;
+    readonly loadSqlite: () => Pick<typeof import("@cursor/sdk/sqlite"), "SqliteLocalAgentStore">;
   }
 >()("@t3tools/provider-cursor/server/CursorSdk") {}
 
@@ -77,5 +79,5 @@ export const layer = Layer.effect(
       Effect.sync(() => {
         process.off("unhandledRejection", onUnhandledRejection);
       }),
-  ).pipe(Effect.as(CursorSdk.of({ Agent, createAgentPlatform, SqliteLocalAgentStore }))),
+  ).pipe(Effect.as(CursorSdk.of({ load: loadCursorSdk, loadSqlite: loadCursorSdkSqlite }))),
 );
