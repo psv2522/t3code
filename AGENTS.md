@@ -246,6 +246,16 @@ Files:
 5. Stops if `HEAD` equals `~/.p2code/installed-head` (override with `--force`).
 6. Builds, then installs. Inside T3 Code it builds only and tells the owner to run `p2code install`.
 
+### Sidebar "Check for updates"
+
+In the desktop app the sidebar update button is wired to p2code (`apps/desktop/src/ipc/methods/p2code.ts`, `apps/web/src/components/sidebar/p2codeUpdate.ts`, exposed as `desktopBridge.p2code`). It is enabled when `~/.p2code/repo` exists; every `p2code build` writes it.
+
+- Click runs `scripts/p2code-update.sh --check`: fetches `upstream/main` and prints JSON (`upstreamCommits`, `localChanges`, `dirty`). `localChanges` means `p2code/custom` differs from `~/.p2code/installed-head`. The check changes nothing but remote-tracking refs.
+- Nothing pending: an "up to date" toast and nothing else. Uncommitted changes in the repo: a toast asking to commit first.
+- Something pending: a confirm dialog, then `~/.p2code/run/update.command` opens in Terminal and runs `p2code-update.sh` interactively (the install prompt, restart and logs all live there). The app never builds or installs by itself, because install restarts the server and quits the app.
+- `p2code-update.sh` keeps a pid lock (`~/.p2code/update.lock`), so a second click cannot start a parallel update.
+- The electron-updater flow, the native "Check for Updates…" menu item and the Settings update controls are untouched and stay disabled in this build.
+
 ### Build
 
 - Version is `<core>-nightly.99<YYMMDD>.<seconds-of-day>`, for example `0.1.1-nightly.99261017.41007`. `<core>` is the base of the newest upstream `v*-nightly.*` tag (fallback `0.1.1`). The `99` prefix sorts above every upstream nightly (`2026xxxx`), so official clients never warn about a server mismatch. The identifier must not have a leading zero (`isExactServiceVersion` rejects it). Keep it a nightly so the app keeps the Nightly name and icon; the installed app is `/Applications/T3 Code (Nightly).app`.

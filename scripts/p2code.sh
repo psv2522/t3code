@@ -140,6 +140,7 @@ cmd_build() {
   [[ ! -e "$build_dir" ]] || die "$build_dir already exists."
   mkdir -p "$build_dir"
   init_step_log "$OUT_ROOT/build.log"
+  printf '%s' "$REPO" > "$OUT_ROOT/repo"
 
   log "Building p2code $version (base $(git rev-parse --short HEAD))"
   trap restore_generated_files EXIT

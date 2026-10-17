@@ -25,6 +25,7 @@ import {
   resolveSshHost,
   resolveSshPasswordPrompt,
 } from "./methods/sshEnvironment.ts";
+import { checkP2codeUpdate, isP2codeAvailable, runP2codeUpdate } from "./methods/p2code.ts";
 import {
   checkForUpdate,
   downloadUpdate,
@@ -153,6 +154,9 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(downloadUpdate);
   yield* ipc.handle(installUpdate);
   yield* ipc.handle(checkForUpdate);
+  yield* ipc.handle(isP2codeAvailable);
+  yield* ipc.handle(checkP2codeUpdate);
+  yield* ipc.handle(runP2codeUpdate);
   yield* ipc.handle(getCliCommandState);
   yield* ipc.handle(installCliCommand);
   yield* ipc.handle(uninstallCliCommand);
