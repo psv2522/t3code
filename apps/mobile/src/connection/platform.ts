@@ -21,6 +21,7 @@ import * as Network from "expo-network";
 import { AppState } from "react-native";
 
 import { authClientMetadata } from "../lib/authClientMetadata";
+import { isForegroundHandoffActive } from "../lib/foreground-handoff";
 import * as Runtime from "../lib/runtime";
 import * as MobileStorage from "../persistence/mobile-storage";
 import { appAtomRegistry } from "../state/atom-registry";
@@ -124,7 +125,7 @@ const layerWakeups = Wakeups.layer({
             let backgroundedAtMs = AppState.currentState === "background" ? Date.now() : null;
             return AppState.addEventListener("change", (state) => {
               if (state === "background") {
-                backgroundedAtMs = Date.now();
+                if (!isForegroundHandoffActive()) backgroundedAtMs = Date.now();
                 return;
               }
               if (state === "active") {
