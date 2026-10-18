@@ -275,6 +275,23 @@ const layerPlatformConnectionSource = Layer.succeed(
 const layerProvidedConnectionStorage = ConnectionStorage.layer.pipe(Layer.provide(Runtime.layer));
 const layerProvidedCapabilities = layerCapabilities.pipe(Layer.provide(Runtime.layer));
 
+const layerCachePersistencePolicy = Layer.succeed(
+  Persistence.CachePersistencePolicy,
+  Persistence.CachePersistencePolicy.of({
+    interval: "30 seconds",
+    flushes: Stream.callback<void>((queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() =>
+          AppState.addEventListener("change", (state) => {
+            if (state === "background") Queue.offerUnsafe(queue, undefined);
+          }),
+        ),
+        (subscription) => Effect.sync(() => subscription.remove()),
+      ).pipe(Effect.asVoid),
+    ),
+  }),
+);
+
 const layerEnvironmentOwnedDataCleanup = Layer.succeed(
   Persistence.EnvironmentOwnedDataCleanup,
   Persistence.EnvironmentOwnedDataCleanup.of({
@@ -304,6 +321,7 @@ type ConnectionPlatformLayerSource =
   | typeof layerWakeups
   | typeof layerProvidedCapabilities
   | typeof layerPlatformConnectionSource
+  | typeof layerCachePersistencePolicy
   | typeof layerEnvironmentOwnedDataCleanup;
 
 export const layer: Layer.Layer<
@@ -317,5 +335,6 @@ export const layer: Layer.Layer<
   layerWakeups,
   layerProvidedCapabilities,
   layerPlatformConnectionSource,
+  layerCachePersistencePolicy,
   layerEnvironmentOwnedDataCleanup,
 );
