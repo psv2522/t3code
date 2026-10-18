@@ -18,7 +18,7 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import Constants from "expo-constants";
 import * as Network from "expo-network";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { authClientMetadata } from "../lib/authClientMetadata";
 import { isForegroundHandoffActive } from "../lib/foreground-handoff";
@@ -137,7 +137,7 @@ const layerWakeups = Wakeups.layer({
               if (state === "active") {
                 Queue.offerUnsafe(
                   queue,
-                  mobileApplicationActiveWakeup(backgroundedAtMs, Date.now()),
+                  mobileApplicationActiveWakeup(backgroundedAtMs, Date.now(), Platform.OS),
                 );
                 backgroundedAtMs = null;
               }
