@@ -251,7 +251,7 @@ import { useEnvironmentQueryRefresh } from "../state/query";
 import { useEnvironmentScope } from "~/state/session";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../state/server";
 import { hostEnvironmentIdAtom } from "../state/primaryEnvironment";
-import { threadEnvironment } from "../state/threads";
+import { environmentThreads, threadEnvironment } from "../state/threads";
 import {
   resolveProviderSkillsForCwd,
   resolveProvidersForCwd,
@@ -273,6 +273,7 @@ import {
   useThreadLastVisitedAt,
   useQuietThreadVisibleTurnItems,
   useThreadStatus,
+  useThreadSyncError,
   useThreadHistory,
   useQuietThreadShell,
   useThreadCheckpointSummaries,
@@ -533,6 +534,7 @@ export default function ChatView(props: ChatViewProps) {
     ? deriveReportedModelSelection(serverProjection)
     : null;
   const threadStatus = useThreadStatus(routeThreadDetailRef);
+  const threadSyncError = useThreadSyncError(routeThreadDetailRef);
   const threadSyncPhase = resolveThreadSyncPhase({
     detailExists: serverProjection !== null,
     shellExists: serverThread !== null,
@@ -3114,9 +3116,15 @@ export default function ChatView(props: ChatViewProps) {
     openExpandedImagePreview(routeThreadKey, preview);
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
-  const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
+  const shownThreadSyncError = activeEnvironmentUnavailable ? null : threadSyncError;
+  const shownThreadSyncPhase =
+    activeEnvironmentUnavailable || shownThreadSyncError !== null ? null : delayedThreadSyncPhase;
   const hasThreadNow =
-    attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
+    attentionNow !== null ||
+    workNow !== null ||
+    goalNow !== null ||
+    shownThreadSyncPhase !== null ||
+    shownThreadSyncError !== null;
   const queuedRunCount = serverProjection ? getUserQueuedThreadRuns(serverProjection).length : 0;
   // The queue control is mounted for every server thread but joins the footer only while it shows
   // something, by its own rule: an optimistic message stops counting once the server has it.
@@ -3155,6 +3163,16 @@ export default function ChatView(props: ChatViewProps) {
           attention={attentionNow}
           work={workNow}
           syncPhase={shownThreadSyncPhase}
+          syncError={shownThreadSyncError}
+          onRetrySync={() => {
+            if (routeThreadDetailRef === null) return;
+            appAtomRegistry.refresh(
+              environmentThreads.stateAtom(
+                routeThreadDetailRef.environmentId,
+                routeThreadDetailRef.threadId,
+              ),
+            );
+          }}
           goal={goalNow}
         />
         {threadStatusLine}

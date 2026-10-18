@@ -1,6 +1,7 @@
 import {
   isOrchestrationV2WorkActive,
   ORCHESTRATION_V2_WS_METHODS,
+  OrchestrationV2GetThreadProjectionError,
   type EnvironmentId as EnvironmentIdType,
   type OrchestrationV2ThreadDetailSnapshot,
   type OrchestrationV2ThreadProjection,
@@ -11,6 +12,7 @@ import {
 import { boundedSnapshotProjection } from "@t3tools/shared/orchestrationV2BoundedSnapshot";
 import { pendingBackgroundTurnItems } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
@@ -1125,6 +1127,41 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           if (!retryOverHttp) yield* setStreamError(formatThreadError(cause));
         }),
         retryExpectedFailureAfter: THREAD_SUBSCRIPTION_RETRY_DELAY,
+        transform: (stream) =>
+          Stream.unwrap(
+            Effect.gen(function* () {
+              const synchronized = yield* Deferred.make<void>();
+              return stream.pipe(
+                Stream.concat(
+                  Stream.fail(
+                    new OrchestrationV2GetThreadProjectionError({
+                      threadId,
+                      message: "The message stream ended unexpectedly.",
+                    }),
+                  ),
+                ),
+                Stream.tap((item) =>
+                  item.kind === "synchronized"
+                    ? Deferred.succeed(synchronized, undefined)
+                    : Effect.void,
+                ),
+                Stream.interruptWhen(
+                  Deferred.await(synchronized).pipe(
+                    Effect.timeout("30 seconds"),
+                    Effect.mapError(
+                      (cause) =>
+                        new OrchestrationV2GetThreadProjectionError({
+                          threadId,
+                          message: "Messages took too long to synchronize.",
+                          cause,
+                        }),
+                    ),
+                    Effect.andThen(Effect.never),
+                  ),
+                ),
+              );
+            }),
+          ),
         resubscribe: Stream.merge(foregroundResubscriptions, Stream.fromQueue(resubscribes)),
       },
     ).pipe(

@@ -102,7 +102,9 @@ import { useDeviceType } from "../../native/native-layout-metrics";
 import { isDuoDevice } from "../../lib/device-type";
 import {
   memo,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -251,7 +253,6 @@ import {
   useThreadChipIcons,
 } from "../../state/entities";
 import { useEnvironmentPresentation } from "../../state/presentation";
-import { useThreadSelection } from "../../state/use-thread-selection";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useModelMentions } from "../../state/model-mentions";
@@ -294,6 +295,32 @@ const WIDE_MARKDOWN_BLOCK_OPTIONS = {
   includeBlockquotes: Platform.OS === "ios",
   includeOrderedLists: Platform.OS === "android",
 } as const;
+
+const ThreadFeedThreadIdContext = createContext<ThreadId | null>(null);
+
+type MessageTextPresentation = ReturnType<typeof resolveUserMessagePresentation> & {
+  readonly renderedText: string;
+  readonly hasWideBlock: boolean;
+};
+
+const messageTextPresentations = new WeakMap<object, MessageTextPresentation>();
+
+function messageTextPresentation(
+  message: Parameters<typeof resolveUserMessagePresentation>[0],
+): MessageTextPresentation {
+  const cached = messageTextPresentations.get(message);
+  if (cached) return cached;
+  const presentation = resolveUserMessagePresentation(message);
+  const renderedText = renderAssistantCitationsAsText(presentation.text);
+  const next = {
+    ...presentation,
+    renderedText,
+    // Android does not reposition children after maxWidth clamps bubbles; definite width prevents wide-block overlap.
+    hasWideBlock: hasWideMarkdownBlock(renderedText, WIDE_MARKDOWN_BLOCK_OPTIONS),
+  };
+  messageTextPresentations.set(message, next);
+  return next;
+}
 
 const TURN_FOLD_HEIGHT = 42;
 const FEED_PADDING_TOP = 12;
@@ -631,7 +658,7 @@ function MessageAttachmentFile(props: {
 }) {
   const sourceIdentifier = useId();
   const navigation = useNavigation();
-  const { selectedThread } = useThreadSelection();
+  const threadId = useContext(ThreadFeedThreadIdContext);
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     refresh: true,
     reportFailure: false,
@@ -726,7 +753,7 @@ function MessageAttachmentFile(props: {
         })
       : navigation.navigate("ThreadAttachment", {
           environmentId: String(props.environmentId),
-          ...(selectedThread ? { threadId: String(selectedThread.id) } : {}),
+          ...(threadId ? { threadId: String(threadId) } : {}),
           attachmentId: attachment.id,
           name: attachment.name,
           mimeType: attachment.mimeType,
@@ -1904,14 +1931,12 @@ function renderFeedEntry(
   if (entry.type === "message") {
     const { message } = entry;
     const isUser = message.role === "user";
-    const presentation = resolveUserMessagePresentation(message);
-    const renderedText = renderAssistantCitationsAsText(presentation.text);
+    const presentation = messageTextPresentation(message);
+    const { renderedText, hasWideBlock } = presentation;
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = formatMessageTimestamp(isUser ? message.createdAt : message.updatedAt);
     const attachments = message.attachments ?? [];
     const hasReviewCommentContext = presentation.text.includes("<review_comment");
-    // Android does not reposition children after maxWidth clamps bubbles; definite width prevents wide-block overlap.
-    const hasWideBlock = hasWideMarkdownBlock(renderedText, WIDE_MARKDOWN_BLOCK_OPTIONS);
     const assistantTurnStillInProgress =
       message.role === "assistant" &&
       props.unsettledTurnId !== null &&
@@ -2417,7 +2442,7 @@ function UserMessageContent(props: UserMessageContentProps) {
   const [selected, setSelected] = useState<{ contextId: string; label: string } | null>(null);
   const navigation = useNavigation();
   const openLinkedThread = useOpenLinkedThread();
-  const { selectedThread } = useThreadSelection();
+  const threadId = useContext(ThreadFeedThreadIdContext);
   const liveText = useLiveThreadLinkLabels(props.text, props.environmentId);
   const threadIcons = useThreadChipIcons(props.environmentId, liveText, props.context?.records);
   const text = replaceComposerContextReferences(liveText, (ref) => {
@@ -2445,7 +2470,7 @@ function UserMessageContent(props: UserMessageContentProps) {
     if (document) {
       navigation.navigate("ThreadAttachment", {
         environmentId: String(props.environmentId),
-        ...(selectedThread ? { threadId: String(selectedThread.id) } : {}),
+        ...(threadId ? { threadId: String(threadId) } : {}),
         attachmentId: document.attachmentId,
         name: document.name,
         mimeType: document.mimeType,
@@ -3810,127 +3835,132 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   }
 
   return (
-    <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
-      <View className="flex-1" onLayout={handleViewportLayout}>
-        {/* In a split, rows only re-wrap in the render that hands the list its new width. A native
+    <ThreadFeedThreadIdContext value={props.threadId}>
+      <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
+        <View className="flex-1" onLayout={handleViewportLayout}>
+          {/* In a split, rows only re-wrap in the render that hands the list its new width. A native
             column resize would re-wrap them first, and the list would place the taller or shorter
             rows at their old offsets until their measurements came back. */}
-        <View
-          className="flex-1"
-          style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
-        >
-          {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
-          <KeyboardAwareLegendList
-            ref={attachList}
-            dataKey={feedThreadKey}
-            style={{ flex: 1 }}
-            // RN 0.81+ drops inset-area touches (facebook/react-native#54123), making blank post-send space unscrollable.
-            applyWorkaroundForContentInsetHitTestBug
-            {...(Platform.OS === "ios" ? { ScrollViewComponent: ThreadFeedScrollView } : {})}
-            contentInsetAdjustmentBehavior="never"
-            automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
-            scrollIndicatorInsets={{ top: anchorTopInset, bottom: 0 }}
-            {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
-            contentInsetEndAdjustment={props.contentInsetEndAdjustment}
-            keyboardOffset={props.keyboardOffset}
-            {...(usesNativeAutomaticInsets ? { contentInset: { top: anchorTopInset } } : {})}
-            freeze={props.freeze}
-            maintainScrollAtEnd={jumpReady ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
-            maintainVisibleContentPosition
-            data={groupedFeed}
-            extraData={listAppearanceData}
-            renderItem={renderItem}
-            viewabilityConfig={THREAD_MEDIA_VIEWABILITY_CONFIG}
-            keyExtractor={(entry) => entry.id}
-            getItemType={(entry) => {
-              if (entry.type !== "message") return entry.type;
-              if (isCompactionCommandFeedEntry(entry)) return "message:compaction";
-              if (
-                entry.message.role === "assistant" &&
-                !terminalAssistantMessageIds.has(entry.message.id)
-              ) {
-                return "message:assistant-progress";
-              }
-              const { attribution } = resolveUserMessagePresentation(entry.message);
-              return attribution === "automation" || attribution === "agent"
-                ? `message:${attribution}`
-                : `message:${entry.message.role}`;
-            }}
-            getFixedItemSize={getFixedItemSize}
-            drawDistance={500}
-            keyboardShouldPersistTaps="always"
-            keyboardDismissMode="none"
-            // Android scrolls a tapped selectable message into view when it takes focus, which reads
-            // as a user scroll and drops end following before the keyboard closes.
-            scrollsChildToFocus={false}
-            keyboardLiftBehavior={props.sendingWithKeyboard ? "persistent" : "whenAtEnd"}
-            // Seed the initial viewport before native onLayout.
-            {...(viewportHeight > 0 && viewportWidth > 0
-              ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }
-              : {})}
-            scrollToOverflowEnabled
-            estimatedItemSize={180}
-            alignItemsAtEnd
-            initialScrollAtEnd
-            onReady={() => {
-              setLoadedListKey(feedThreadKey);
-              handleMetricsChange();
-            }}
-            onLayout={handleMetricsChange}
-            onItemSizeChanged={handleItemSizeChanged}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            ListHeaderComponent={
-              <>
-                {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
-                {setupAnchorIndex < 0 && props.worktreeSetup ? (
-                  <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
-                ) : null}
-                {props.historyControls ? (
-                  <ThreadFeedLoadEarlierControl {...props.historyControls} />
-                ) : null}
-              </>
-            }
-            ListFooterComponent={
-              props.pendingHandoff ? (
-                <ThreadHandoffDivider
-                  environmentId={props.environmentId}
-                  endpoints={props.pendingHandoff}
-                  iconColor={iconSubtleColor}
-                  surfaceColor={screenColor}
-                  label="Context handoff pending"
-                />
-              ) : null
-            }
-            contentContainerStyle={{
-              ...(props.fitShortFeedToViewport ? { minHeight: "100%" } : {}),
-              paddingTop: FEED_PADDING_TOP,
-              paddingLeft: contentHorizontalPadding + contentLeftInset,
-              paddingRight: contentHorizontalPadding + contentRightInset,
-            }}
-          />
-        </View>
-        {presentedFeed.length === 0 &&
-        !props.worktreeSetup &&
-        props.activeWorkStartedAt === null &&
-        props.contentPresentation.kind === "ready" ? (
           <View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFill, { left: contentLeftInset, right: contentRightInset }]}
+            className="flex-1"
+            style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
           >
-            <ThreadFeedPlaceholder
-              title="No conversation yet"
-              detail="Ask the agent to inspect the repo, run a command, or continue the active thread."
-              topInset={topContentInset}
-              bottomInset={bottomContentInset}
-              horizontalPadding={horizontalPadding}
+            {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
+            <KeyboardAwareLegendList
+              ref={attachList}
+              dataKey={feedThreadKey}
+              style={{ flex: 1 }}
+              // RN 0.81+ drops inset-area touches (facebook/react-native#54123), making blank post-send space unscrollable.
+              applyWorkaroundForContentInsetHitTestBug
+              {...(Platform.OS === "ios" ? { ScrollViewComponent: ThreadFeedScrollView } : {})}
+              contentInsetAdjustmentBehavior="never"
+              automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
+              scrollIndicatorInsets={{ top: anchorTopInset, bottom: 0 }}
+              {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
+              contentInsetEndAdjustment={props.contentInsetEndAdjustment}
+              keyboardOffset={props.keyboardOffset}
+              {...(usesNativeAutomaticInsets ? { contentInset: { top: anchorTopInset } } : {})}
+              freeze={props.freeze}
+              maintainScrollAtEnd={jumpReady ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
+              maintainVisibleContentPosition
+              data={groupedFeed}
+              extraData={listAppearanceData}
+              renderItem={renderItem}
+              viewabilityConfig={THREAD_MEDIA_VIEWABILITY_CONFIG}
+              keyExtractor={(entry) => entry.id}
+              getItemType={(entry) => {
+                if (entry.type !== "message") return entry.type;
+                if (isCompactionCommandFeedEntry(entry)) return "message:compaction";
+                if (
+                  entry.message.role === "assistant" &&
+                  !terminalAssistantMessageIds.has(entry.message.id)
+                ) {
+                  return "message:assistant-progress";
+                }
+                const { attribution } = resolveUserMessagePresentation(entry.message);
+                return attribution === "automation" || attribution === "agent"
+                  ? `message:${attribution}`
+                  : `message:${entry.message.role}`;
+              }}
+              getFixedItemSize={getFixedItemSize}
+              drawDistance={500}
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="none"
+              // Android scrolls a tapped selectable message into view when it takes focus, which reads
+              // as a user scroll and drops end following before the keyboard closes.
+              scrollsChildToFocus={false}
+              keyboardLiftBehavior={props.sendingWithKeyboard ? "persistent" : "whenAtEnd"}
+              // Seed the initial viewport before native onLayout.
+              {...(viewportHeight > 0 && viewportWidth > 0
+                ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }
+                : {})}
+              scrollToOverflowEnabled
+              estimatedItemSize={180}
+              alignItemsAtEnd
+              initialScrollAtEnd
+              onReady={() => {
+                setLoadedListKey(feedThreadKey);
+                handleMetricsChange();
+              }}
+              onLayout={handleMetricsChange}
+              onItemSizeChanged={handleItemSizeChanged}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              ListHeaderComponent={
+                <>
+                  {usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />}
+                  {setupAnchorIndex < 0 && props.worktreeSetup ? (
+                    <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
+                  ) : null}
+                  {props.historyControls ? (
+                    <ThreadFeedLoadEarlierControl {...props.historyControls} />
+                  ) : null}
+                </>
+              }
+              ListFooterComponent={
+                props.pendingHandoff ? (
+                  <ThreadHandoffDivider
+                    environmentId={props.environmentId}
+                    endpoints={props.pendingHandoff}
+                    iconColor={iconSubtleColor}
+                    surfaceColor={screenColor}
+                    label="Context handoff pending"
+                  />
+                ) : null
+              }
+              contentContainerStyle={{
+                ...(props.fitShortFeedToViewport ? { minHeight: "100%" } : {}),
+                paddingTop: FEED_PADDING_TOP,
+                paddingLeft: contentHorizontalPadding + contentLeftInset,
+                paddingRight: contentHorizontalPadding + contentRightInset,
+              }}
             />
           </View>
-        ) : null}
-        <VideoPreviewModal source={expandedVideo} onRequestClose={closeVideoPreview} />
-        <FilePreviewModal source={expandedFile} onRequestClose={closeFilePreview} />
-      </View>
-    </PresentationSource>
+          {presentedFeed.length === 0 &&
+          !props.worktreeSetup &&
+          props.activeWorkStartedAt === null &&
+          props.contentPresentation.kind === "ready" ? (
+            <View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFill,
+                { left: contentLeftInset, right: contentRightInset },
+              ]}
+            >
+              <ThreadFeedPlaceholder
+                title="No conversation yet"
+                detail="Ask the agent to inspect the repo, run a command, or continue the active thread."
+                topInset={topContentInset}
+                bottomInset={bottomContentInset}
+                horizontalPadding={horizontalPadding}
+              />
+            </View>
+          ) : null}
+          <VideoPreviewModal source={expandedVideo} onRequestClose={closeVideoPreview} />
+          <FilePreviewModal source={expandedFile} onRequestClose={closeFilePreview} />
+        </View>
+      </PresentationSource>
+    </ThreadFeedThreadIdContext>
   );
 });
 

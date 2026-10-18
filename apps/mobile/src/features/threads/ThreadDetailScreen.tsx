@@ -271,6 +271,7 @@ export interface ThreadDetailScreenProps {
   readonly connectionStateLabel: EnvironmentConnectionPhase;
   readonly connectionAwaitingApproval?: boolean;
   readonly threadSyncStatus?: EnvironmentThreadStatus;
+  readonly threadSyncError?: { readonly message: string; readonly retry: () => void } | null;
   readonly historyControls?: ThreadFeedHistoryControls;
   readonly activeThreadBusy: boolean;
   readonly canStopThread: boolean;
@@ -570,6 +571,7 @@ function ThreadDetailBody(
   const composerKeyboardOffset = composerBottomInset;
   const contentPresentationKind = props.contentPresentation.kind;
   const realThreadSyncLabel = (() => {
+    if (props.threadSyncError) return null;
     switch (props.threadSyncStatus) {
       case "empty":
       case "cached":
@@ -813,6 +815,21 @@ function ThreadDetailBody(
     }
     if (props.creationState?.kind === "failed") {
       return null;
+    }
+    const syncError = props.threadSyncError;
+    if (syncError) {
+      return {
+        kind: "connection",
+        tone: "unavailable",
+        label: "Messages couldn’t sync · Retry",
+        onPress: () =>
+          Dialog.confirm({
+            title: "Could not sync messages",
+            message: syncError.message,
+            confirmText: "Retry",
+            onConfirm: syncError.retry,
+          }),
+      };
     }
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };

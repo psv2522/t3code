@@ -92,7 +92,8 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { resolveMergeBackTargetThreadId } from "@t3tools/client-runtime/state/thread-relationships";
 import { resolveLatestMergeBackRun } from "@t3tools/client-runtime/state/thread-workflows";
-import { threadEnvironment } from "../../state/threads";
+import { environmentThreads, threadEnvironment } from "../../state/threads";
+import { appAtomRegistry } from "../../state/atom-registry";
 import { EMPTY_ENVIRONMENT_THREAD_STATE } from "@t3tools/client-runtime/state/threads";
 import { useProjects } from "../../state/entities";
 import { projectThreadContentPresentation } from "./threadContentPresentation";
@@ -1044,6 +1045,17 @@ function ThreadRouteContent(
           connectionStateLabel={routeConnectionState}
           connectionAwaitingApproval={routeEnvironmentRuntime?.connectionAwaitingApproval === true}
           threadSyncStatus={selectedThreadDetailState.status}
+          threadSyncError={
+            creationState === null && Option.isSome(selectedThreadDetailState.error)
+              ? {
+                  message: selectedThreadDetailState.error.value,
+                  retry: () =>
+                    appAtomRegistry.refresh(
+                      environmentThreads.stateAtom(selectedThread.environmentId, selectedThread.id),
+                    ),
+                }
+              : null
+          }
           historyControls={historyControls}
           activeThreadBusy={composer.activeThreadBusy}
           canStopThread={awaitingBootstrapTurn || composer.interruptibleRunId !== null}

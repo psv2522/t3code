@@ -1,9 +1,10 @@
-import { RefreshCwIcon } from "lucide-react";
+import { CircleAlertIcon, RefreshCwIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { threadSyncLabel, type ThreadSyncPhase } from "../../threadSync";
 import { cn } from "~/lib/utils";
 import { NoticeText } from "./ComposerBannerStack";
+import { InlineButton } from "../ui/button";
 
 /** A line of thread state for the end of the timeline. */
 export interface ThreadNowItem {
@@ -84,19 +85,36 @@ export function ThreadNow({
   attention,
   work,
   syncPhase,
+  syncError,
+  onRetrySync,
   goal,
 }: {
   /** Something that needs you elsewhere, such as a subagent's question. */
   readonly attention: ThreadNowItem | null;
   readonly work: ThreadNowItem | null;
   readonly syncPhase: ThreadSyncPhase | null;
+  readonly syncError?: string | null;
+  readonly onRetrySync?: () => void;
   readonly goal: ThreadNowItem | null;
 }): ReactNode {
   return (
     <>
       {attention ? <ThreadNowLine item={attention} announce /> : null}
       {work ? <ThreadNowLine item={work} /> : null}
-      {syncPhase ? <ThreadSyncLine phase={syncPhase} /> : null}
+      {syncError ? (
+        <ThreadNowLine
+          announce
+          item={{
+            id: "sync-error",
+            icon: <CircleAlertIcon aria-hidden />,
+            title: "Could not sync messages",
+            description: syncError,
+            actions: onRetrySync ? <InlineButton onClick={onRetrySync}>Retry</InlineButton> : null,
+          }}
+        />
+      ) : syncPhase ? (
+        <ThreadSyncLine phase={syncPhase} />
+      ) : null}
       {goal ? <ThreadNowLine item={goal} /> : null}
     </>
   );
