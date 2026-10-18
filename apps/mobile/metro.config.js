@@ -37,6 +37,14 @@ config.resolver = {
     "@t3tools/mobile-preview-stream": generatedPreviewStreamRoot,
   },
 };
+const getExpoTransformOptions = config.transformer.getTransformOptions;
+config.transformer = {
+  ...config.transformer,
+  getTransformOptions: async (...args) => {
+    const options = await getExpoTransformOptions(...args);
+    return { ...options, transform: { ...options.transform, inlineRequires: true } };
+  },
+};
 
 async function writeFileIfChanged(filePath, contents) {
   try {
