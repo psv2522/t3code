@@ -26,6 +26,7 @@ import { AsyncResult } from "effect/reactivity";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import {
+  BearerConnectionTarget,
   ConnectionTransientError,
   RelayConnectionTarget,
   type PreparedConnection,
@@ -628,6 +629,30 @@ describe("authenticated environment HTTP requests", () => {
           authorization === null ? "include" : undefined,
         );
       }),
+  );
+
+  it.effect.each([
+    {
+      name: "a direct route",
+      target: new BearerConnectionTarget({
+        environmentId: TARGET.environmentId,
+        label: TARGET.label,
+        connectionId: "learned:lan",
+      }),
+      direct: true,
+    },
+    { name: "the T3 Connect route", target: TARGET, direct: undefined },
+  ])("authorizes $name requests as direct only when they are", ({ target, direct }) =>
+    Effect.gen(function* () {
+      const harness = makeHarness(() => Response.json(SESSION));
+
+      yield* fetchEnvironmentSessionState({
+        ...harness.input,
+        prepared: { ...PREPARED, target },
+      }).pipe(Effect.provide(harness.httpLayer));
+
+      expect(harness.authorizations[0]?.direct).toBe(direct);
+    }),
   );
 
   it.effect("reports renewal failure without sending the expired prepared token", () =>

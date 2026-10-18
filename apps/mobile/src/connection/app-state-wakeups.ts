@@ -1,19 +1,29 @@
 import type { Wakeups } from "@t3tools/client-runtime/connection";
+import type { PlatformOSType } from "react-native";
 
-const MOBILE_LONG_BACKGROUND_AFTER_MS = 10_000;
+export const ANDROID_BACKGROUND_PAUSE_AFTER_MS = 30_000;
+export const ANDROID_BACKGROUND_RECONNECT_AFTER_MS = 60_000;
+export const MOBILE_BACKGROUND_RECONNECT_AFTER_MS = 10_000;
 
 export type MobileApplicationActiveWakeup = Extract<
   Wakeups.ConnectionWakeup,
   "application-active-probe" | "application-active-long"
 >;
 
+export function mobileBackgroundReconnectAfterMs(os: PlatformOSType): number {
+  return os === "android"
+    ? ANDROID_BACKGROUND_RECONNECT_AFTER_MS
+    : MOBILE_BACKGROUND_RECONNECT_AFTER_MS;
+}
+
 export function mobileApplicationActiveWakeup(
   backgroundedAtMs: number | null,
   activeAtMs: number,
+  os: PlatformOSType,
 ): MobileApplicationActiveWakeup | null {
   // iOS goes inactive without suspending for Control Center, alerts, and the app switcher.
   if (backgroundedAtMs === null) return null;
-  return activeAtMs - backgroundedAtMs >= MOBILE_LONG_BACKGROUND_AFTER_MS
+  return activeAtMs - backgroundedAtMs >= mobileBackgroundReconnectAfterMs(os)
     ? "application-active-long"
     : "application-active-probe";
 }

@@ -1,4 +1,5 @@
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
+import type { ServerProvider } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
   collectLimitPools,
@@ -71,6 +72,25 @@ export interface SubscriptionUsageSnapshot {
 // Snapshots expire after 15 minutes; suspended refresh requires a separate authenticated transport.
 const SNAPSHOT_MAX_AGE = 15 * 60_000;
 export const WIDGET_REFRESH_INTERVAL = 5 * 60_000;
+
+function oldestCheckedAt(checkedAt: readonly string[]) {
+  const checked = checkedAt.map(Date.parse);
+  return checked.length > 0 && checked.every(Number.isFinite) ? Math.min(...checked) : 0;
+}
+
+export function usageLimitsCheckedAt(providers: readonly ServerProvider[]) {
+  const usage = providers
+    .filter(
+      (provider) =>
+        (provider.driver === "codex" || provider.driver === "claudeAgent") &&
+        provider.enabled &&
+        provider.installed,
+    )
+    .map((provider) => provider.usageLimits);
+  return usage.every((limits) => limits !== undefined)
+    ? oldestCheckedAt(usage.map((limits) => limits.checkedAt))
+    : 0;
+}
 
 export function createWidgetRefresher<Id>(refresh: (id: Id) => Promise<unknown>) {
   const attempted = new Map<Id, number>();
@@ -217,11 +237,12 @@ function subscriptionUsageProps(
   resolve: MessageResolver,
 ): SubscriptionUsageSnapshot {
   const pools = collectLimitPools(accounts, now);
-  const checked = accounts
-    .filter((account) => account.driver === "codex" || account.driver === "claudeAgent")
-    .map((account) => Date.parse(account.limits.checkedAt));
   return {
-    checkedAt: checked.length > 0 && checked.every(Number.isFinite) ? Math.min(...checked) : 0,
+    checkedAt: oldestCheckedAt(
+      accounts
+        .filter((account) => account.driver === "codex" || account.driver === "claudeAgent")
+        .map((account) => account.limits.checkedAt),
+    ),
     providers: (["codex", "claudeAgent"] as const)
       .filter(
         (driver) =>

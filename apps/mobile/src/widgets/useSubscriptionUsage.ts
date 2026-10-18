@@ -9,7 +9,11 @@ import { appAtomRegistry } from "../state/atom-registry";
 import { environmentPresentations } from "../state/presentation";
 import { serverEnvironment } from "../state/server";
 import { environmentShell } from "../state/shell";
-import { createWidgetRefresher, WIDGET_REFRESH_INTERVAL } from "./subscriptionUsageSnapshot";
+import {
+  createWidgetRefresher,
+  usageLimitsCheckedAt,
+  WIDGET_REFRESH_INTERVAL,
+} from "./subscriptionUsageSnapshot";
 
 // A shell that failed never goes live, and its environment still needs fresh quotas.
 const shellSettledAtom = Atom.family((environmentId: EnvironmentId) =>
@@ -48,7 +52,12 @@ export function installSubscriptionUsageRefresh(): () => void {
   );
   const update = () => {
     if (!isAppActive() || !appAtomRegistry.get(environmentCatalog.catalogValueAtom).isReady) return;
-    void refresh(appAtomRegistry.get(refreshableEnvironmentsAtom), Date.now());
+    const now = Date.now();
+    const providers = appAtomRegistry.get(environmentPresentations.providersByEnvironmentAtom);
+    const stale = appAtomRegistry
+      .get(refreshableEnvironmentsAtom)
+      .filter((id) => now - usageLimitsCheckedAt(providers.get(id) ?? []) >= WIDGET_REFRESH_INTERVAL);
+    void refresh(stale, now);
   };
 
   const unsubscribeCatalog = appAtomRegistry.subscribe(environmentCatalog.catalogValueAtom, update);

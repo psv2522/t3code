@@ -33,6 +33,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
+import { RpcClientError } from "effect/rpc";
 import { pendingBackgroundTurnItems } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
@@ -87,7 +88,12 @@ const BASE_PROJECTION: OrchestrationV2ThreadProjection = {
 
 const TEST_DEFECT = { defect: "Malformed snapshot" } as const;
 
-type TestThreadInput = OrchestrationV2ThreadStreamItem | Error | typeof TEST_DEFECT;
+type TestThreadInput =
+  | OrchestrationV2ThreadStreamItem
+  | Error
+  | typeof TEST_DEFECT
+  | { readonly defect: Error }
+  | null;
 
 function testSession(
   client: WsRpcProtocolClient,
@@ -159,12 +165,16 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   );
   const streamFrom = (queue: Queue.Queue<TestThreadInput>) =>
     Stream.fromQueue(queue).pipe(
+      Stream.takeUntil((input) => input === null),
+      Stream.filter((input) => input !== null),
       Stream.mapEffect((input) =>
         input === TEST_DEFECT
           ? Effect.die(input)
           : input instanceof Error
             ? Effect.fail(input)
-            : Effect.succeed(input),
+            : "defect" in input
+              ? Effect.die(input.defect)
+              : Effect.succeed(input),
       ),
     );
   const client = {
@@ -2574,7 +2584,7 @@ describe("EnvironmentThreads", () => {
       // A failed reload backs off, still from the snapshot.
       yield* Queue.offer(harness.inputs, TEST_DEFECT);
       yield* awaitThreadState(harness.observed, (value) => Option.isSome(value.error));
-      yield* TestClock.adjust("60 seconds");
+      yield* TestClock.adjust("10 seconds");
       yield* awaitSubscriptions(3);
       expect(yield* Ref.get(harness.lastSubscribeAfterSequence)).toBeUndefined();
 
@@ -2593,6 +2603,74 @@ describe("EnvironmentThreads", () => {
       yield* awaitSubscriptions(4);
       expect(yield* Ref.get(harness.lastSubscribeAfterSequence)).toBe(CACHED_SNAPSHOT_SEQUENCE + 5);
     }),
+  );
+
+  it.effect("recovers a thread subscription whose stream ends without replacing the session", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_PROJECTION });
+      yield* awaitThreadState(harness.observed, (value) => value.status === "live");
+      yield* Queue.offer(harness.inputs, null);
+      const failed = yield* awaitThreadState(harness.observed, (value) =>
+        Option.isSome(value.error),
+      );
+      expect(Option.getOrThrow(failed.data)).toEqual(BASE_PROJECTION);
+
+      yield* TestClock.adjust("1 second");
+      expect(yield* SubscriptionRef.get(harness.subscriptionCount)).toBe(2);
+      const recovered = yield* awaitThreadState(
+        harness.observed,
+        (value) => value.status === "live" && Option.isNone(value.error),
+      );
+      expect(Option.getOrThrow(recovered.data)).toEqual(BASE_PROJECTION);
+      expect(yield* Ref.get(harness.retryCount)).toBe(0);
+    }),
+  );
+
+  it.effect.each(["cached", "http"] as const)(
+    "retries an unfinished %s sync and leaves a synchronized idle thread connected",
+    (source) =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          ...(source === "cached"
+            ? { cached: BASE_PROJECTION }
+            : {
+                httpSnapshot: {
+                  _tag: "present" as const,
+                  snapshot: {
+                    snapshotSequence: CACHED_SNAPSHOT_SEQUENCE,
+                    projection: BASE_PROJECTION,
+                  },
+                },
+              }),
+          completionMarker: true,
+        });
+        yield* SubscriptionRef.changes(harness.subscriptionCount).pipe(
+          Stream.filter((count) => count === 1),
+          Stream.runHead,
+        );
+        yield* TestClock.adjust("20 seconds");
+        yield* Queue.offer(
+          harness.inputs,
+          titleUpdated("Partial update", CACHED_SNAPSHOT_SEQUENCE + 1),
+        );
+        yield* TestClock.adjust("1 second");
+        yield* TestClock.adjust("9 seconds");
+        const failed = yield* awaitThreadState(harness.observed, (value) =>
+          Option.isSome(value.error),
+        );
+        expect(Option.getOrNull(failed.error)).toBe("Messages took too long to synchronize.");
+        expect(Option.getOrThrow(failed.data)).toEqual(BASE_PROJECTION);
+
+        yield* TestClock.adjust("250 millis");
+        expect(yield* SubscriptionRef.get(harness.subscriptionCount)).toBe(2);
+        expect(yield* Ref.get(harness.lastSubscribeAfterSequence)).toBe(CACHED_SNAPSHOT_SEQUENCE);
+        yield* Queue.offer(harness.inputs, synchronized());
+        yield* awaitThreadState(harness.observed, (value) => value.status === "live");
+
+        yield* TestClock.adjust("1 minute");
+        expect(yield* SubscriptionRef.get(harness.subscriptionCount)).toBe(2);
+        expect(yield* Ref.get(harness.retryCount)).toBe(0);
+      }),
   );
 
   it.effect("publishes a 20-event catch-up as one state change at its marker", () =>

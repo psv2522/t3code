@@ -292,6 +292,9 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
     cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
   ) => Effect.Effect<void, never, never>;
   readonly retryExpectedFailureAfter?: Duration.Input;
+  readonly transform?: (
+    stream: Stream.Stream<EnvironmentRpcStreamValue<TTag>, EnvironmentRpcStreamFailure<TTag>>,
+  ) => Stream.Stream<EnvironmentRpcStreamValue<TTag>, EnvironmentRpcStreamFailure<TTag>>;
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
@@ -354,7 +357,10 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                       const stream = mapStream(
                         session,
                         input,
-                        Stream.suspend(() => method(input)),
+                        Stream.suspend(() => {
+                          const source = method(input);
+                          return options?.transform?.(source) ?? source;
+                        }),
                       ).pipe(
                         Stream.onFirst(() =>
                           Effect.sync(() => {

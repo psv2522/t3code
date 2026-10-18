@@ -8,6 +8,6 @@ describe("mobileApplicationActiveWakeup", () => {
     ["background just under 10 s", 0, 9_999, "application-active-probe"],
     ["background of 10 s or more", 0, 10_000, "application-active-long"],
   ] as const)("%s", (_case, backgroundedAtMs, activeAtMs, expected) => {
-    expect(mobileApplicationActiveWakeup(backgroundedAtMs, activeAtMs)).toBe(expected);
+    expect(mobileApplicationActiveWakeup(backgroundedAtMs, activeAtMs, "ios")).toBe(expected);
   });
 });

@@ -1,4 +1,8 @@
-import { ClientCapabilities, PlatformConnectionSource } from "@t3tools/client-runtime/platform";
+import {
+  ClientCapabilities,
+  Persistence,
+  PlatformConnectionSource,
+} from "@t3tools/client-runtime/platform";
 import {
   ConnectionBlockedError,
   ConnectionTransientError,
@@ -17,14 +21,19 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import Constants from "expo-constants";
 import * as Network from "expo-network";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { authClientMetadata } from "../lib/authClientMetadata";
+import { isForegroundHandoffActive } from "../lib/foreground-handoff";
 import * as Runtime from "../lib/runtime";
 import * as MobileStorage from "../persistence/mobile-storage";
 import { appAtomRegistry } from "../state/atom-registry";
-import { mobileApplicationActiveWakeup } from "./app-state-wakeups";
 import * as EnvironmentOwnedDataCleanup from "./environment-owned-data-cleanup";
+import {
+  ANDROID_BACKGROUND_PAUSE_AFTER_MS,
+  mobileApplicationActiveWakeup,
+  type MobileApplicationActiveWakeup,
+} from "./app-state-wakeups";
 import * as ConnectionStorage from "./storage";
 
 function networkStatus(state: Network.NetworkState): "unknown" | "offline" | "online" {
@@ -115,22 +124,47 @@ const networkPathChanges = Stream.callback<"network-changed">((queue) =>
 const layerWakeups = Wakeups.layer({
   changes: Stream.mergeAll(
     [
-      Stream.callback<"application-active-probe" | "application-active-long">((queue) =>
+      Stream.callback<MobileApplicationActiveWakeup | "application-background">((queue) =>
         Effect.acquireRelease(
           Effect.gen(function* () {
             const nowMs = yield* Clock.currentTimeMillis;
             let backgroundedAtMs = AppState.currentState === "background" ? nowMs : null;
-            return AppState.addEventListener("change", (state) => {
+            let pauseTimer: ReturnType<typeof setTimeout> | undefined;
+            const cancelPause = () => {
+              clearTimeout(pauseTimer);
+              pauseTimer = undefined;
+            };
+            const subscription = AppState.addEventListener("change", (state) => {
               if (state === "background") {
+                if (isForegroundHandoffActive()) return;
                 backgroundedAtMs = Date.now();
+                if (Platform.OS !== "android") return;
+                cancelPause();
+                pauseTimer = setTimeout(() => {
+                  pauseTimer = undefined;
+                  if (AppState.currentState === "background" && !isForegroundHandoffActive()) {
+                    Queue.offerUnsafe(queue, "application-background");
+                  }
+                }, ANDROID_BACKGROUND_PAUSE_AFTER_MS);
                 return;
               }
               if (state === "active") {
-                const wakeup = mobileApplicationActiveWakeup(backgroundedAtMs, Date.now());
+                cancelPause();
+                const wakeup = mobileApplicationActiveWakeup(
+                  backgroundedAtMs,
+                  Date.now(),
+                  Platform.OS,
+                );
                 if (wakeup !== null) Queue.offerUnsafe(queue, wakeup);
                 backgroundedAtMs = null;
               }
             });
+            return {
+              remove: () => {
+                cancelPause();
+                subscription.remove();
+              },
+            };
           }),
           (subscription) => Effect.sync(() => subscription.remove()),
         ).pipe(Effect.asVoid),
@@ -262,6 +296,23 @@ const layerPlatformConnectionSource = Layer.succeed(
 const layerProvidedConnectionStorage = ConnectionStorage.layer.pipe(Layer.provide(Runtime.layer));
 const layerProvidedCapabilities = layerCapabilities.pipe(Layer.provide(Runtime.layer));
 
+const layerCachePersistencePolicy = Layer.succeed(
+  Persistence.CachePersistencePolicy,
+  Persistence.CachePersistencePolicy.of({
+    interval: "30 seconds",
+    flushes: Stream.callback<void>((queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() =>
+          AppState.addEventListener("change", (state) => {
+            if (state === "background") Queue.offerUnsafe(queue, undefined);
+          }),
+        ),
+        (subscription) => Effect.sync(() => subscription.remove()),
+      ).pipe(Effect.asVoid),
+    ),
+  }),
+);
+
 type ConnectionPlatformLayerSource =
   | typeof layerProvidedConnectionStorage
   | typeof Runtime.layer
@@ -269,6 +320,7 @@ type ConnectionPlatformLayerSource =
   | typeof layerWakeups
   | typeof layerProvidedCapabilities
   | typeof layerPlatformConnectionSource
+  | typeof layerCachePersistencePolicy
   | typeof EnvironmentOwnedDataCleanup.layer;
 
 export const layer: Layer.Layer<
@@ -282,5 +334,6 @@ export const layer: Layer.Layer<
   layerWakeups,
   layerProvidedCapabilities,
   layerPlatformConnectionSource,
+  layerCachePersistencePolicy,
   EnvironmentOwnedDataCleanup.layer,
 );

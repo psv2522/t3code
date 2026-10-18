@@ -102,6 +102,7 @@ interface EnvironmentQueryAtomOptions<Input, A, E, R> extends Omit<
   readonly staleTimeMs?: number;
   readonly idleTtlMs?: number;
   readonly refreshIntervalMs?: number;
+  readonly refreshIntervalEnabled?: Atom.Atom<boolean>;
   /** Each change of the returned signal refreshes the query; `query` is the data it refreshes. */
   readonly refreshTrigger?: (
     target: {
@@ -593,13 +594,13 @@ const refreshOnSignalWhileRead =
   };
 
 const refreshEveryUntilFinal =
-  <V>(intervalMs: number, isFinal: (value: V) => boolean) =>
+  <V>(intervalMs: number, isFinal: (value: V) => boolean, enabled?: Atom.Atom<boolean>) =>
   <A extends V>(self: Atom.Atom<A>): Atom.Atom<A> =>
     Atom.transform(
       self,
       (get) => {
         const value = get(self);
-        if (!isFinal(value)) {
+        if (!isFinal(value) && (enabled === undefined || get(enabled))) {
           // @effect-diagnostics-next-line globalTimers:off - Mirrors `Atom.withRefresh`, outside an Effect runtime.
           const handle = setTimeout(() => get.refresh(self), intervalMs);
           get.addFinalizer(() => clearTimeout(handle));
@@ -910,7 +911,13 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
     const intervalQuery =
       options.refreshIntervalMs === undefined
         ? queryAtom
-        : queryAtom.pipe(refreshEveryUntilFinal(options.refreshIntervalMs, isFinal));
+        : queryAtom.pipe(
+            refreshEveryUntilFinal(
+              options.refreshIntervalMs,
+              isFinal,
+              options.refreshIntervalEnabled,
+            ),
+          );
     const refreshTrigger = options.refreshTrigger?.(target, intervalQuery);
     return (
       refreshTrigger === undefined
@@ -1033,6 +1040,7 @@ export function createEnvironmentRpcQueryAtomFamily<
     readonly staleTimeMs?: number;
     readonly idleTtlMs?: number;
     readonly refreshIntervalMs?: number;
+    readonly refreshIntervalEnabled?: Atom.Atom<boolean>;
     readonly refreshTrigger?: (target: {
       readonly environmentId: EnvironmentIdType;
       readonly input: EnvironmentRpcInput<TTag>;
@@ -1049,6 +1057,9 @@ export function createEnvironmentRpcQueryAtomFamily<
     ...(options.refreshIntervalMs === undefined
       ? {}
       : { refreshIntervalMs: options.refreshIntervalMs }),
+    ...(options.refreshIntervalEnabled === undefined
+      ? {}
+      : { refreshIntervalEnabled: options.refreshIntervalEnabled }),
     ...(options.refreshTrigger === undefined ? {} : { refreshTrigger: options.refreshTrigger }),
     ...(options.isFinal === undefined ? {} : { isFinal: options.isFinal }),
     ...(options.onAnswer === undefined ? {} : { onAnswer: options.onAnswer }),
