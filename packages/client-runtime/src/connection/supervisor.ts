@@ -70,6 +70,7 @@ const BETTER_ROUTE_COOLDOWN_MS = 300_000;
 interface SupervisorIntent {
   readonly desired: boolean;
   readonly network: NetworkStatus;
+  readonly suspended: boolean;
 }
 
 type SupervisorSignal =
@@ -286,6 +287,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
     network: yield* connectivity.status,
+    suspended: false,
   };
   const intent = yield* Ref.make(initialIntent);
   const signals = yield* Queue.unbounded<SupervisorSignal>();
@@ -577,6 +579,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           if (next.reason === "application-active-long") {
             return true;
           }
+          if (next.reason === "application-background") {
+            return false;
+          }
           if (next.reason === "credentials-changed" && usesRelay) {
             yield* logManagedRelayAccountChange;
             return false;
@@ -599,6 +604,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     if (next._tag === "BetterRouteAvailable") {
       yield* Ref.set(preferredRouteId, Option.some(next.routeId));
       return "reset" as const;
+    }
+    if (next._tag === "Wakeup" && next.reason === "application-background") {
+      return "end" as const;
     }
     // Only a session over T3 Connect holds the old account's credential.
     if (next._tag === "Wakeup" && next.reason === "credentials-changed" && isRelayLease(lease)) {
@@ -929,7 +937,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       }
     }
     const currentIntent = yield* Ref.get(intent);
-    if (!currentIntent.desired || (currentIntent.network === "offline" && !ignoreOffline)) {
+    if (
+      !currentIntent.desired ||
+      currentIntent.suspended ||
+      (currentIntent.network === "offline" && !ignoreOffline)
+    ) {
       return {
         _tag: "Interrupted",
         established: false,
@@ -1058,7 +1070,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         yield* waitForSignal;
         continue;
       }
-      if (currentIntent.network === "offline" && !replacing) {
+      if (currentIntent.suspended || (currentIntent.network === "offline" && !replacing)) {
         yield* clearLease;
         yield* setState(offlineState(currentIntent, generation, failureCount + 1, latestFailure));
         const applicationActivated = yield* waitForSignal;
@@ -1172,7 +1184,18 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       (reason === "network-changed" || reason === "application-active-long"
         ? forgetSilentRoutes
         : Effect.void
-      ).pipe(Effect.andThen(signal({ _tag: "Wakeup", reason }))),
+      ).pipe(
+        Effect.andThen(
+          Ref.update(intent, (current) =>
+            reason === "application-background"
+              ? { ...current, suspended: true }
+              : ConnectionWakeups.isApplicationActiveWakeup(reason)
+                ? { ...current, suspended: false }
+                : current,
+          ),
+        ),
+        Effect.andThen(signal({ _tag: "Wakeup", reason })),
+      ),
     ),
     Effect.forkScoped,
   );
