@@ -7,9 +7,11 @@ import {
   type VcsListRefsResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import type { ConnectionRegistration } from "../connection/catalog.ts";
 import type { DeferredShellSnapshot } from "../state/shellPullRequests.ts";
@@ -144,5 +146,15 @@ export class EnvironmentOwnedDataCleanup extends Context.Reference<{
 }>("@t3tools/client-runtime/platform/persistence/EnvironmentOwnedDataCleanup", {
   defaultValue: () => ({
     clear: () => Effect.void,
+  }),
+}) {}
+
+export class CachePersistencePolicy extends Context.Reference<{
+  readonly interval: Duration.Input;
+  readonly flushes: Stream.Stream<void>;
+}>("@t3tools/client-runtime/platform/persistence/CachePersistencePolicy", {
+  defaultValue: () => ({
+    interval: "10 seconds",
+    flushes: Stream.never,
   }),
 }) {}
