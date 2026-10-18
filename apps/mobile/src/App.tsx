@@ -78,6 +78,7 @@ import {
 } from "./lib/foundation-fast-refresh";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { installUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
+import { usePullRequestPollingWhileActive } from "./state/pull-request-polling";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { ConnectDeviceApprovalCoordinator } from "./features/connection/ConnectDeviceApprovalCoordinator";
 import { installSubscriptionUsageRefresh } from "./widgets/useSubscriptionUsage";
@@ -110,6 +111,7 @@ import { pruneNewTaskFlowStates } from "./features/threads/new-task-flow-state";
 import { pruneNewTaskBranchCheckouts } from "./features/threads/NewTaskDraftRouteScreen";
 import { installAppUpdateChecks } from "./features/updates/app-updates";
 
+import "./connection/warm-start";
 import "../global.css";
 
 if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
@@ -272,6 +274,8 @@ function QuickActionsLanguage() {
 }
 
 export default function App() {
+  usePullRequestPollingWhileActive();
+
   return (
     <RegistryContext.Provider value={appAtomRegistry}>
       <CloudAuthProvider>

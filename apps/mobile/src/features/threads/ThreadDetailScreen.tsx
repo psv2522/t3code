@@ -276,6 +276,7 @@ export interface ThreadDetailScreenProps {
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
   readonly respondingUserInputId: RuntimeRequestId | null;
   readonly connectionStateLabel: EnvironmentConnectionPhase;
+  readonly threadSyncError?: { readonly message: string; readonly retry: () => void } | null;
   readonly historyControls?: ThreadFeedHistoryControls;
   readonly activeThreadBusy: boolean;
   readonly canStopThread: boolean;
@@ -864,6 +865,20 @@ function ThreadDetailBody(
     }
     if (props.creationState?.kind === "failed") {
       return null;
+    }
+    const syncError = props.threadSyncError;
+    if (syncError) {
+      return {
+        kind: "connection",
+        label: gt("Messages couldn’t sync · Retry"),
+        onPress: () =>
+          Dialog.confirm({
+            title: gt("Could not sync messages"),
+            message: syncError.message,
+            confirmText: gt("Retry"),
+            onConfirm: syncError.retry,
+          }),
+      };
     }
     const childInput = childThreadInputs[0];
     if (childInput && contentPresentationKind === "ready") {

@@ -213,6 +213,7 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
             .authorizeDpopHttp({
               expectedEnvironmentId: input.prepared.environmentId,
               ...(rejectedAccessToken === undefined ? {} : { rejectedAccessToken }),
+              ...(input.prepared.target._tag === "RelayConnectionTarget" ? {} : { direct: true }),
             })
             .pipe(Effect.mapError(authFetchError));
           // A learned direct route keeps its own origin; only the token renews.
