@@ -19,6 +19,7 @@ import {
   projectedRowEncodedBytes,
   selectHistoryPageFromCursor,
   selectRecentTimelineWindow,
+  THREAD_HISTORY_MAX_TURN_ITEMS,
   THREAD_HISTORY_PAGE_POLICY,
 } from "./threadHistoryPaging.ts";
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
@@ -254,6 +255,54 @@ describe("threadHistoryPaging", () => {
     });
     expect([...older.items, ...first.items].map((row) => row.sourceItemId)).toEqual(
       items.map((row) => row.sourceItemId),
+    );
+  });
+
+  it("pages one oversized turn kept alive by steers instead of shipping it whole", () => {
+    const userMessage = (index: number, inputIntent: "turn_start" | "steer") => {
+      const row = makeRow(index);
+      return {
+        ...row,
+        item: {
+          ...row.item,
+          type: "user_message",
+          runId: RUN,
+          createdBy: "user",
+          creationSource: "web",
+          inputIntent,
+          messageId: MessageId.make(`message-${index}`),
+          text: `Message ${index}`,
+          attachments: [],
+        },
+      } as OrchestrationV2ProjectedTurnItem;
+    };
+    const previousTurn = [userMessage(0, "turn_start"), makeRow(1)];
+    const longTurn = Array.from({ length: 400 }, (_, offset) => {
+      const index = offset + 2;
+      if (offset === 0) return userMessage(index, "turn_start");
+      return offset % 40 === 0 ? userMessage(index, "steer") : makeRow(index);
+    });
+    const items = [...previousTurn, ...longTurn];
+
+    const projection = buildBoundedThreadProjection({
+      projection: makeProjection(items),
+      snapshotSequence: 1,
+    });
+    expect(projection.projection.visibleTurnItems).toHaveLength(THREAD_HISTORY_MAX_TURN_ITEMS);
+    expect(projection.hasMoreHistory).toBe(true);
+
+    const pages = [projection.projection.visibleTurnItems];
+    let cursor = projection.historyCursor;
+    while (cursor !== null) {
+      const page = selectHistoryPageFromCursor({ items, cursor, snapshotSequence: 1 });
+      pages.unshift(page.items);
+      cursor = page.nextCursor;
+    }
+    expect(pages.flat().map((row) => row.sourceItemId)).toEqual(
+      items.map((row) => row.sourceItemId),
+    );
+    expect(pages[0]?.map((row) => row.sourceItemId)).toEqual(
+      [...previousTurn, ...longTurn.slice(0, 100)].map((row) => row.sourceItemId),
     );
   });
 

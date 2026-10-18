@@ -23,6 +23,12 @@ export function isConversationHistoryItem(item: Pick<OrchestrationV2TurnItem, "t
 }
 export const THREAD_HISTORY_MAX_RAW_TURNS = 150;
 
+/**
+ * A run kept alive by steers is one turn of unbounded length. Past this many
+ * rows it is paged like a history without turn starts instead of shipped whole.
+ */
+export const THREAD_HISTORY_MAX_TURN_ITEMS = 150;
+
 export const THREAD_HISTORY_SNAPSHOT_ROW_LIMIT = THREAD_HISTORY_PAGE_POLICY.maxItems + 2;
 
 const THREAD_HISTORY_CURSOR_MAX_LENGTH = 4_096;
@@ -231,6 +237,7 @@ function selectOlderTimelinePage<Row extends HistoryRow>(input: {
   let encodedBytes = 0;
   let userTurns = 0;
   let rawTurns = 0;
+  let turnRows = 0;
   const candidates = input.items.slice(0, end);
   const turnStarts = threadHistoryTurnStarts(candidates.map((row) => row.item));
   const turnLimit = candidates.some((row) => isThreadHistoryUserTurn(row.item))
@@ -243,14 +250,20 @@ function selectOlderTimelinePage<Row extends HistoryRow>(input: {
       selected.length > 0 &&
       (turnLimit === undefined
         ? selected.length >= policy.maxItems || encodedBytes + rowBytes > policy.maxEncodedBytes
-        : userTurns >= turnLimit || rawTurns >= THREAD_HISTORY_MAX_RAW_TURNS)
+        : userTurns >= turnLimit ||
+          rawTurns >= THREAD_HISTORY_MAX_RAW_TURNS ||
+          turnRows >= THREAD_HISTORY_MAX_TURN_ITEMS)
     ) {
       break;
     }
     selected.push(row);
     encodedBytes += rowBytes;
+    turnRows += 1;
     if (isThreadHistoryUserTurn(row.item)) userTurns += 1;
-    if (turnStarts[index]) rawTurns += 1;
+    if (turnStarts[index]) {
+      rawTurns += 1;
+      turnRows = 0;
+    }
   }
   selected.reverse();
 
