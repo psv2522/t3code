@@ -28,6 +28,7 @@ import { OverlayPortalHost } from "./components/ui/OverlayPortal";
 import { shouldHandleAppLink, restoreDraftLinkState } from "./lib/appLinking";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { useUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
+import { usePullRequestPollingWhileActive } from "./state/pull-request-polling";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { VoiceInputProvider } from "./features/voice-input/VoiceInputProvider";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
@@ -73,6 +74,7 @@ export default function App() {
       }),
     [],
   );
+  usePullRequestPollingWhileActive();
 
   return (
     <RegistryContext.Provider value={appAtomRegistry}>

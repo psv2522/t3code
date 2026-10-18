@@ -120,6 +120,11 @@ function createPullRequestRefreshAtomFamily<R, E>(
   });
 }
 
+export const pullRequestPollingEnabledAtom = Atom.make(true).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("environment-data:pull-requests:polling-enabled"),
+);
+
 export function createLinkedPullRequestSummaryAtomFamily<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
   refreshes = createPullRequestRefreshAtomFamily(runtime),
@@ -131,6 +136,7 @@ export function createLinkedPullRequestSummaryAtomFamily<R, E>(
     execute: (input) => routedRequest(WS_METHODS.pullRequestsSummary, input),
     staleTimeMs: 60_000,
     refreshIntervalMs: 60_000,
+    refreshIntervalEnabled: pullRequestPollingEnabledAtom,
     idleTtlMs: LINKED_PULL_REQUEST_IDLE_TTL_MS,
     refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
     isFinal: (summary) => summary.state === "merged",
@@ -300,6 +306,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       tag: WS_METHODS.pullRequestsLinkedThreads,
       staleTimeMs: 0,
       refreshIntervalMs: 10_000,
+      refreshIntervalEnabled: pullRequestPollingEnabledAtom,
       refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
     }),
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
