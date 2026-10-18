@@ -60,6 +60,14 @@ config.resolver = {
     "@shikijs/vscode-textmate": resolveShikiDependencyRoot("@shikijs/vscode-textmate"),
   },
 };
+const getExpoTransformOptions = config.transformer.getTransformOptions;
+config.transformer = {
+  ...config.transformer,
+  getTransformOptions: async (...args) => {
+    const options = await getExpoTransformOptions(...args);
+    return { ...options, transform: { ...options.transform, inlineRequires: true } };
+  },
+};
 
 async function writeFileIfChanged(filePath, contents) {
   try {
