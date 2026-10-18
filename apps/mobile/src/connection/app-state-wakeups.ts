@@ -1,6 +1,7 @@
 import type { Wakeups } from "@t3tools/client-runtime/connection";
 import type { PlatformOSType } from "react-native";
 
+export const ANDROID_BACKGROUND_PAUSE_AFTER_MS = 10_000;
 export const ANDROID_BACKGROUND_RECONNECT_AFTER_MS = 60_000;
 export const MOBILE_BACKGROUND_RECONNECT_AFTER_MS = 10_000;
 
