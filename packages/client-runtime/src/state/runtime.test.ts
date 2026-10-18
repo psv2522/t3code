@@ -103,10 +103,14 @@ const makeEnvironmentQueryHarness = Effect.fn("TestEnvironmentQuery.makeHarness"
     rpcSession,
     isFinal,
     onAnswer,
+    refreshIntervalMs,
+    refreshIntervalEnabled,
   }: {
     readonly refreshTrigger?: Atom.Atom<unknown>;
     readonly onAnswer?: QueryAnswerHandler<undefined, A>;
     readonly isFinal?: (value: A) => boolean;
+    readonly refreshIntervalMs?: number;
+    readonly refreshIntervalEnabled?: Atom.Atom<boolean>;
     readonly idleTtlMs?: number;
     readonly persistence?: QueryPersistence<A>;
     readonly initialState?: SupervisorConnectionState;
@@ -155,6 +159,8 @@ const makeEnvironmentQueryHarness = Effect.fn("TestEnvironmentQuery.makeHarness"
     ...(idleTtlMs === undefined ? {} : { idleTtlMs }),
     ...(isFinal === undefined ? {} : { isFinal }),
     ...(onAnswer === undefined ? {} : { onAnswer }),
+    ...(refreshIntervalMs === undefined ? {} : { refreshIntervalMs }),
+    ...(refreshIntervalEnabled === undefined ? {} : { refreshIntervalEnabled }),
   });
 
   return {
@@ -1077,6 +1083,37 @@ describe("environment query lifecycle", () => {
         yield* Deferred.succeed(afterDelete, {});
         expect(yield* readEnvironmentQuery(registry, atom)).toEqual({});
         expect(settled).toEqual([{ fork: "Fork" }, {}]);
+      }),
+    ),
+  );
+
+  it.effect("skips timed refreshes while disabled and resumes on the next interval", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        yield* Effect.addFinalizer(() => Effect.sync(() => vi.useRealTimers()));
+        let executions = 0;
+        const enabled = Atom.make(true).pipe(Atom.keepAlive);
+        const harness = yield* makeEnvironmentQueryHarness(
+          Effect.sync(() => (executions += 1)),
+          { refreshIntervalMs: 1_000, refreshIntervalEnabled: enabled },
+        );
+        const registry = yield* mountEnvironmentQuery(harness.atom);
+        const read = readEnvironmentQuery(registry, harness.atom);
+
+        expect(yield* read).toBe(1);
+        vi.advanceTimersByTime(1_000);
+        expect(yield* read).toBe(2);
+
+        registry.set(enabled, false);
+        vi.advanceTimersByTime(5_000);
+        expect(yield* read).toBe(2);
+
+        registry.set(enabled, true);
+        vi.advanceTimersByTime(999);
+        expect(yield* read).toBe(2);
+        vi.advanceTimersByTime(1);
+        expect(yield* read).toBe(3);
       }),
     ),
   );
