@@ -6,10 +6,11 @@ export type ConnectionWakeup =
   | "application-active"
   | "application-active-probe"
   | "application-active-reconnect"
+  | "application-background"
   | "credentials-changed"
   | "network-changed";
 
-function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
+export function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
   return (
     reason === "application-active" ||
     reason === "application-active-probe" ||

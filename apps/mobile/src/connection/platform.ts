@@ -28,7 +28,11 @@ import { appAtomRegistry } from "../state/atom-registry";
 import { clearThreadOutboxEnvironment } from "../state/thread-outbox-removal";
 import { clearComposerDraftsEnvironment } from "../state/use-composer-drafts";
 import { clearThreadComposerErrorsForEnvironment } from "../state/thread-composer-error";
-import { mobileApplicationActiveWakeup } from "./app-state-wakeups";
+import {
+  ANDROID_BACKGROUND_PAUSE_AFTER_MS,
+  mobileApplicationActiveWakeup,
+  type MobileApplicationActiveWakeup,
+} from "./app-state-wakeups";
 import * as ConnectionStorage from "./storage";
 
 function networkStatus(state: Network.NetworkState): "unknown" | "offline" | "online" {
@@ -125,16 +129,31 @@ const networkPathChanges = Stream.callback<"network-changed">((queue) =>
 const layerWakeups = Wakeups.layer({
   changes: Stream.mergeAll(
     [
-      Stream.callback<"application-active-probe" | "application-active-reconnect">((queue) =>
+      Stream.callback<MobileApplicationActiveWakeup | "application-background">((queue) =>
         Effect.acquireRelease(
           Effect.sync(() => {
             let backgroundedAtMs = AppState.currentState === "background" ? Date.now() : null;
-            return AppState.addEventListener("change", (state) => {
+            let pauseTimer: ReturnType<typeof setTimeout> | undefined;
+            const cancelPause = () => {
+              clearTimeout(pauseTimer);
+              pauseTimer = undefined;
+            };
+            const subscription = AppState.addEventListener("change", (state) => {
               if (state === "background") {
-                if (!isForegroundHandoffActive()) backgroundedAtMs = Date.now();
+                if (isForegroundHandoffActive()) return;
+                backgroundedAtMs = Date.now();
+                if (Platform.OS !== "android") return;
+                cancelPause();
+                pauseTimer = setTimeout(() => {
+                  pauseTimer = undefined;
+                  if (AppState.currentState === "background" && !isForegroundHandoffActive()) {
+                    Queue.offerUnsafe(queue, "application-background");
+                  }
+                }, ANDROID_BACKGROUND_PAUSE_AFTER_MS);
                 return;
               }
               if (state === "active") {
+                cancelPause();
                 Queue.offerUnsafe(
                   queue,
                   mobileApplicationActiveWakeup(backgroundedAtMs, Date.now(), Platform.OS),
@@ -142,6 +161,12 @@ const layerWakeups = Wakeups.layer({
                 backgroundedAtMs = null;
               }
             });
+            return {
+              remove: () => {
+                cancelPause();
+                subscription.remove();
+              },
+            };
           }),
           (subscription) => Effect.sync(() => subscription.remove()),
         ).pipe(Effect.asVoid),
