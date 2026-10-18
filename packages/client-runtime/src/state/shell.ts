@@ -91,7 +91,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     error: Option.none(),
   });
   const awaitingCompletion = yield* Ref.make(false);
-  const lastAuthoritativeSession = yield* Ref.make<RpcSession | null>(null);
+  const authoritativeSnapshotLoaded = yield* Ref.make(false);
   const activeSubscriptionSession = yield* Ref.make<RpcSession | null>(null);
   const latestLiveSnapshot = yield* Ref.make<Option.Option<OrchestrationV2ShellSnapshot>>(
     Option.none(),
@@ -231,11 +231,8 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       yield* Ref.set(latestLiveSnapshot, next.snapshot);
     }
     yield* SubscriptionRef.set(state, next);
-    if (receivedSnapshot) {
-      const session = yield* Ref.get(activeSubscriptionSession);
-      if (session !== null) {
-        yield* Ref.set(lastAuthoritativeSession, session);
-      }
+    if (receivedSnapshot && (yield* Ref.get(activeSubscriptionSession)) !== null) {
+      yield* Ref.set(authoritativeSnapshotLoaded, true);
     }
     if (next.snapshot !== initial.snapshot && Option.isSome(next.snapshot)) {
       yield* Queue.offer(persistence, next.snapshot.value);
@@ -328,12 +325,18 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
         yield* setSynchronizing;
 
-        // Foreground resubscriptions on the same live session can resume from
-        // the in-memory cursor. A new session reloads the authoritative HTTP
-        // snapshot so a valid cursor cannot preserve incomplete cached data.
-        const hasAuthoritativeSnapshot = (yield* Ref.get(lastAuthoritativeSession)) === session;
-        let canResume = hasAuthoritativeSnapshot;
+        // Once an authoritative snapshot has been applied, any session can resume
+        // from the in-memory cursor; the server sends a full snapshot when the gap
+        // is too large. Data only from the disk cache, or rows still waiting for
+        // deferred links, reloads the HTTP snapshot so a valid cursor cannot
+        // preserve incomplete data.
         let current = yield* SubscriptionRef.get(state);
+        const hasAuthoritativeSnapshot =
+          (yield* Ref.get(authoritativeSnapshotLoaded)) &&
+          !Option.exists(current.snapshot, (snapshot) =>
+            snapshot.threads.some((thread) => pendingLinkRows.has(thread)),
+          );
+        let canResume = hasAuthoritativeSnapshot;
         if (!hasAuthoritativeSnapshot || Option.isNone(current.snapshot)) {
           const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
             Effect.flatMap(
