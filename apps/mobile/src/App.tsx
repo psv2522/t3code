@@ -34,6 +34,7 @@ import { VoiceInputProvider } from "./features/voice-input/VoiceInputProvider";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
 import { NativeLayoutMetricsProvider } from "./native/native-layout-metrics";
 
+import "./connection/warm-start";
 import "../global.css";
 
 if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
