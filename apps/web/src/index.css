@@ -1779,6 +1779,30 @@ body {
   background-size: var(--surface-grain-size);
 }
 
+/* image-rendering inherits, so it is reset below the hero to keep other images smooth. */
+html[data-main-background] [data-draft-hero] {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--background) calc(100% - var(--main-background-opacity)), transparent)
+    ),
+    var(--main-background-image);
+  background-size: auto, var(--main-background-size);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-attachment: scroll, fixed;
+  image-rendering: pixelated;
+}
+
+html[data-main-background] [data-draft-hero] > * {
+  image-rendering: auto;
+}
+
+html[data-main-background]
+  [data-draft-hero]
+  :is([data-chat-header], [data-main-surface], [data-timeline-loading]) {
+  background-color: transparent;
+}
+
 pre,
 code {
   font-family: var(--font-mono);

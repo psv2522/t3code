@@ -42,6 +42,7 @@ import {
   syncDocumentElectronPlatformClasses,
   syncDocumentWindowControlsOverlayClass,
 } from "./lib/windowControlsOverlay";
+import { startMainBackground } from "./mainBackground";
 import { startProviderAuthDelivery } from "./providerAuthDelivery";
 import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
@@ -166,6 +167,7 @@ export function startAppServices(): AppRouter {
   installDesktopPasteAsText(window.desktopBridge, window);
 
   startClientAppearance();
+  startMainBackground();
   startDocumentTitle();
   startEnvironmentThemeRepaint();
   startBrowserChromeThemeSync(router);
