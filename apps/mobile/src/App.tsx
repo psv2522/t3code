@@ -95,6 +95,7 @@ import { pruneNewTaskFlowStates } from "./features/threads/new-task-flow-state";
 import { pruneNewTaskBranchCheckouts } from "./features/threads/NewTaskDraftRouteScreen";
 import { installAppUpdateChecks } from "./features/updates/app-updates";
 
+import "./connection/warm-start";
 import "../global.css";
 
 if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
