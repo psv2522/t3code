@@ -371,20 +371,19 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         yield* Ref.set(awaitingCompletion, true);
         yield* setSynchronizing;
 
-        // A disk-cache snapshot resumes from its cursor on any session, and so
-        // does an authoritative one; the server sends a full snapshot when the
-        // gap is too large. After an HTTP snapshot, rows still waiting for
-        // deferred links reload it so a valid cursor cannot preserve incomplete
-        // data.
+        // Once an authoritative snapshot has been applied, any session can resume
+        // from the in-memory cursor; the server sends a full snapshot when the gap
+        // is too large. Data only from the disk cache, or rows still waiting for
+        // deferred links, reloads the HTTP snapshot so a valid cursor cannot
+        // preserve incomplete data.
         let current = yield* SubscriptionRef.get(state);
-        const hasResumableSnapshot =
-          Option.isSome(cachedSnapshot) ||
-          ((yield* Ref.get(authoritativeSnapshotLoaded)) &&
-            !Option.exists(current.snapshot, (snapshot) =>
-              snapshot.threads.some((thread) => pendingLinkRows.has(thread)),
-            ));
-        let canResume = hasResumableSnapshot;
-        if (!hasResumableSnapshot || Option.isNone(current.snapshot)) {
+        const hasAuthoritativeSnapshot =
+          (yield* Ref.get(authoritativeSnapshotLoaded)) &&
+          !Option.exists(current.snapshot, (snapshot) =>
+            snapshot.threads.some((thread) => pendingLinkRows.has(thread)),
+          );
+        let canResume = hasAuthoritativeSnapshot;
+        if (!hasAuthoritativeSnapshot || Option.isNone(current.snapshot)) {
           const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
             Effect.flatMap(
               Option.match({

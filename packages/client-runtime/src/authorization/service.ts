@@ -460,31 +460,6 @@ export const make = Effect.gen(function* () {
     },
   });
 
-  const authorizeCachedDirect = Effect.fn("clientRuntime.connection.remote.authorizeCachedDirect")(
-    function* (
-      environmentId: EnvironmentId,
-      endpoint: { readonly httpBaseUrl: string; readonly wsBaseUrl: string },
-    ) {
-      const thumbprint = yield* signer.thumbprint;
-      const now = yield* Clock.currentTimeMillis;
-      const cached = yield* tokenStore.get(environmentId);
-      if (
-        Option.isNone(cached) ||
-        cached.value.environmentId !== environmentId ||
-        cached.value.dpopThumbprint !== thumbprint ||
-        cached.value.expiresAtEpochMs <= now + DPOP_ACCESS_TOKEN_REFRESH_SKEW_MS
-      ) {
-        return Option.none();
-      }
-      const socketUrl = yield* createDpopSocketUrl(
-        cached.value,
-        CACHED_ENDPOINT_SOCKET_TIMEOUT_MS,
-        endpoint,
-      );
-      return Option.some({ ...httpAuthorization(cached.value, endpoint.httpBaseUrl), socketUrl });
-    },
-  );
-
   const authorizeDpop = Effect.fn("clientRuntime.connection.remote.authorizeDpop")(function* (
     input: Parameters<RemoteEnvironmentAuthorization["Service"]["authorizeDpop"]>[0],
   ) {
@@ -497,14 +472,6 @@ export const make = Effect.gen(function* () {
             httpBaseUrl: endpoint.httpBaseUrl,
             connectionMethod: "direct",
           });
-    if (endpoint !== undefined && Option.isNone(yield* cloudSession.identity)) {
-      const direct = yield* authorizeCachedDirect(input.expectedEnvironmentId, endpoint).pipe(
-        Effect.result,
-      );
-      if (Result.isSuccess(direct) && Option.isSome(direct.success)) {
-        return { ...direct.success.value, ...(descriptor === undefined ? {} : { descriptor }) };
-      }
-    }
     const authorized = (token: TokenStore.RemoteDpopAccessToken, socketUrl: string) => ({
       ...httpAuthorization(token, endpoint?.httpBaseUrl),
       socketUrl,

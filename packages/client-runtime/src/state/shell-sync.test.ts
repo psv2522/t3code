@@ -568,29 +568,21 @@ describe("environment shell synchronization", () => {
     }),
   );
 
-  it.effect("applies a lower-sequence server snapshot over a client-ahead cache", () =>
+  it.effect("applies authoritative lower-sequence HTTP resets over client-ahead cache", () =>
     Effect.gen(function* () {
       const cachedSnapshot: OrchestrationV2ShellSnapshot = {
         ...v2ShellSnapshot,
         snapshotSequence: 20,
         projects: [{ ...v2Project, title: "Client ahead" }],
       };
-      const resetSnapshot: OrchestrationV2ShellSnapshot = {
+      const httpSnapshot: OrchestrationV2ShellSnapshot = {
         ...v2ShellSnapshot,
         snapshotSequence: 4,
         projects: [{ ...v2Project, title: "Server reset" }],
       };
       const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
-      const capturedAfterSequence = yield* SubscriptionRef.make<number | undefined>(undefined);
       const client = {
-        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input: {
-          readonly afterSequence?: number;
-        }) =>
-          Stream.unwrap(
-            SubscriptionRef.set(capturedAfterSequence, input.afterSequence).pipe(
-              Effect.as(Stream.fromQueue(events)),
-            ),
-          ),
+        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: () => Stream.fromQueue(events),
       } as unknown as WsRpcProtocolClient;
       const supervisorState = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
       const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
@@ -617,7 +609,7 @@ describe("environment shell synchronization", () => {
         clear: () => Effect.void,
       });
       const snapshotLoader = ShellSnapshotLoader.ShellSnapshotLoader.of({
-        load: () => Effect.succeedNone,
+        load: () => Effect.succeed(Option.some(httpSnapshot)),
       });
       const shellState = yield* makeEnvironmentShellState().pipe(
         Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
@@ -625,13 +617,6 @@ describe("environment shell synchronization", () => {
         Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, snapshotLoader),
       );
 
-      yield* SubscriptionRef.changes(capturedAfterSequence).pipe(
-        Stream.filter((value) => value !== undefined),
-        Stream.runHead,
-      );
-      expect(yield* SubscriptionRef.get(capturedAfterSequence)).toBe(20);
-
-      yield* Queue.offer(events, { kind: "snapshot", snapshot: resetSnapshot });
       yield* SubscriptionRef.changes(shellState).pipe(
         Stream.filter(
           (state) => Option.isSome(state.snapshot) && state.snapshot.value.snapshotSequence === 4,
@@ -760,7 +745,6 @@ describe("environment shell synchronization", () => {
         threads: [v2ThreadShell, { ...v2ThreadShell, id: otherThreadId }],
       };
       const linksReady = yield* Deferred.make<void>();
-      const loaderCalls = yield* Ref.make(0);
       const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
       const client = {
         [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: () => Stream.fromQueue(events),
@@ -800,7 +784,7 @@ describe("environment shell synchronization", () => {
         clear: () => Effect.void,
       });
       const snapshotLoader = ShellSnapshotLoader.ShellSnapshotLoader.of({
-        load: () => Ref.update(loaderCalls, (count) => count + 1).pipe(Effect.as(Option.none())),
+        load: () => Effect.succeedNone,
       });
       const shellState = yield* makeEnvironmentShellState().pipe(
         Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
@@ -834,7 +818,6 @@ describe("environment shell synchronization", () => {
       );
       expect(filled[0]).toBe(serverRow);
       expect(filled[1]?.pullRequests).toEqual([link(2)]);
-      expect(yield* Ref.get(loaderCalls)).toBe(0);
     }),
   );
 
