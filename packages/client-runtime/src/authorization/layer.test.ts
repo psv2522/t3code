@@ -455,6 +455,126 @@ describe("RemoteEnvironmentAuthorization", () => {
     }),
   );
 
+  it.effect("uses the persisted token on a direct address before the cloud sign-in loads", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        initialToken: persistedToken(),
+        responses: [Response.json(DESCRIPTOR), websocketTicket("lan-ticket")],
+      });
+      yield* Ref.set(harness.session, Option.none());
+
+      const authorized = yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        return yield* remote.authorizeDpop({
+          expectedEnvironmentId: ENVIRONMENT_ID,
+          directEndpoint: {
+            httpBaseUrl: "http://192.168.1.10:3773/",
+            wsBaseUrl: "ws://192.168.1.10:3773/",
+          },
+        });
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(authorized.httpBaseUrl).toBe("http://192.168.1.10:3773/");
+      expect(authorized.socketUrl).toContain("wsTicket=lan-ticket");
+      expect(yield* Ref.get(harness.bootstrapCalls)).toBe(0);
+    }),
+  );
+
+  it.effect.each([
+    {
+      name: "expired",
+      token: () => persistedToken({ expiresAtEpochMs: 1 }),
+      responses: [Response.json(DESCRIPTOR)],
+    },
+    {
+      name: "bound to another key",
+      token: () => persistedToken({ dpopThumbprint: "thumbprint-2" }),
+      responses: [Response.json(DESCRIPTOR)],
+    },
+    {
+      name: "rejected by the direct address",
+      token: () => persistedToken(),
+      responses: [Response.json(DESCRIPTOR), authInvalid()],
+    },
+  ])(
+    "waits for the cloud sign-in when the persisted token is $name on a direct address",
+    ({ token, responses }) =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ initialToken: token(), responses });
+        yield* Ref.set(harness.session, Option.none());
+
+        const error = yield* Effect.gen(function* () {
+          const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+          return yield* remote
+            .authorizeDpop({
+              expectedEnvironmentId: ENVIRONMENT_ID,
+              directEndpoint: {
+                httpBaseUrl: "http://192.168.1.10:3773/",
+                wsBaseUrl: "ws://192.168.1.10:3773/",
+              },
+            })
+            .pipe(Effect.flip);
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(error).toMatchObject({
+          _tag: "ConnectionTransientError",
+          reason: "session-pending",
+        });
+        expect(yield* Ref.get(harness.bootstrapCalls)).toBe(0);
+        expect((yield* Ref.get(harness.tokens)).has(ENVIRONMENT_ID)).toBe(true);
+      }),
+  );
+
+  it.effect("authorizes direct HTTP requests from the persisted token before sign-in loads", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ initialToken: persistedToken(), responses: [] });
+      yield* Ref.set(harness.session, Option.none());
+
+      const authorized = yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        return yield* remote.authorizeDpopHttp({
+          expectedEnvironmentId: ENVIRONMENT_ID,
+          direct: true,
+        });
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(authorized.httpAuthorization.accessToken).toBe("cached-access-token");
+      expect(yield* Ref.get(harness.bootstrapCalls)).toBe(0);
+    }),
+  );
+
+  it.effect.each([
+    { name: "the request is not direct", token: () => persistedToken(), input: {} },
+    {
+      name: "the persisted token was rejected",
+      token: () => persistedToken(),
+      input: { direct: true, rejectedAccessToken: "cached-access-token" },
+    },
+    {
+      name: "the persisted token is expired",
+      token: () => persistedToken({ expiresAtEpochMs: 1 }),
+      input: { direct: true },
+    },
+  ])("keeps HTTP requests waiting for sign-in when $name", ({ token, input }) =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ initialToken: token(), responses: [] });
+      yield* Ref.set(harness.session, Option.none());
+
+      const pending = yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        return yield* remote
+          .authorizeDpopHttp({ expectedEnvironmentId: ENVIRONMENT_ID, ...input })
+          .pipe(Effect.flip);
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(pending).toMatchObject({
+        _tag: "ConnectionTransientError",
+        reason: "session-pending",
+      });
+      expect(yield* Ref.get(harness.bootstrapCalls)).toBe(0);
+    }),
+  );
+
   it.effect("sends no token to a direct address that answers as another machine", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
