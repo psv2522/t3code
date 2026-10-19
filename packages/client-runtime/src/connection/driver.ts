@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as HttpClient from "effect/http/HttpClient";
@@ -15,6 +16,7 @@ import type {
 import { ConnectionTransientError } from "./model.ts";
 import * as ConnectionResolver from "./resolver.ts";
 import {
+  connectionRouteKind,
   connectionRoutes,
   routeEntry,
   routeHttpBaseUrl,
@@ -41,6 +43,11 @@ export interface EnvironmentConnectionLease {
 export type RouteCheck = "answered" | "silent" | "unchecked";
 
 const ROUTE_CHECK_TIMEOUT_MS = 2_500;
+const LAN_ROUTE_CHECK_TIMEOUT_MS = 1_000;
+const LAN_ROUTE_ATTEMPT_TIMEOUT_MS = 8_000;
+
+const routeCheckTimeoutMs = (route: ConnectionRoute) =>
+  connectionRouteKind(route) === "lan" ? LAN_ROUTE_CHECK_TIMEOUT_MS : ROUTE_CHECK_TIMEOUT_MS;
 
 export class ConnectionDriver extends Context.Service<
   ConnectionDriver,
@@ -76,9 +83,21 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
   let transient: ConnectionAttemptError | undefined;
   let blocked: ConnectionAttemptError | undefined;
   // Each route gets its own scope so a half-open session closes before the next try.
-  const attempt = Effect.fnUntraced(function* (route: ConnectionRoute) {
+  const attempt = Effect.fnUntraced(function* (route: ConnectionRoute, final: boolean) {
     const routeScope = yield* Scope.fork(attemptScope);
     const result = yield* connectRoute(route).pipe(
+      final || connectionRouteKind(route) !== "lan"
+        ? identity
+        : Effect.timeoutOrElse({
+            duration: LAN_ROUTE_ATTEMPT_TIMEOUT_MS,
+            orElse: () =>
+              Effect.fail(
+                new ConnectionTransientError({
+                  reason: "timeout",
+                  detail: `${entry.target.label} did not finish connecting over the local network.`,
+                }),
+              ),
+          }),
       Scope.provide(routeScope),
       Effect.onExit((exit) => (Exit.isSuccess(exit) ? Effect.void : Scope.close(routeScope, exit))),
       Effect.result,
@@ -96,13 +115,13 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
       silent.push(route);
       continue;
     }
-    const result = yield* attempt(route);
+    const result = yield* attempt(route, index === routes.length - 1 && silent.length === 0);
     if (result._tag === "Success") return result.success;
     // An incompatible server is the same server on every route.
     if (result.failure.reason === "unsupported") return yield* result.failure;
   }
-  for (const route of silent) {
-    const result = yield* attempt(route);
+  for (const [index, route] of silent.entries()) {
+    const result = yield* attempt(route, index === silent.length - 1);
     if (result._tag === "Success") return result.success;
     if (result.failure.reason === "unsupported") return yield* result.failure;
   }
@@ -129,7 +148,7 @@ export const make = Effect.gen(function* () {
     // answers at a saved LAN address on a different network.
     return fetchRemoteEnvironmentDescriptor({
       httpBaseUrl,
-      timeoutMs: ROUTE_CHECK_TIMEOUT_MS,
+      timeoutMs: routeCheckTimeoutMs(route),
     }).pipe(
       Effect.map((descriptor): RouteCheck =>
         descriptor.environmentId === entry.target.environmentId ? "answered" : "silent",
