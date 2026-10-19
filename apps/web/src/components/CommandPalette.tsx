@@ -348,7 +348,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   );
 }
 
-function CommandPaletteDialog(props: {
+export function CommandPaletteDialog(props: {
   readonly mode: SearchOverlayMode;
   readonly session: number;
   readonly openIntent: CommandPaletteOpenIntent | null;

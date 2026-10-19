@@ -1,6 +1,7 @@
 /** Keep bundler externals aligned with the staged production dependency list. */
 const DESKTOP_RUNTIME_EXTERNAL_PREFIXES = [
   "@napi-rs/keyring",
+  "electron-updater",
   "@crowecawcaw/xa11y",
   "@clerk/electron-passkeys",
   "electron-webauthn",
