@@ -20,8 +20,14 @@ const generatedDeviceStreamRoot = path.join(__dirname, ".generated", "device-str
 const generatedPreviewStreamRoot = path.join(__dirname, ".generated", "preview-stream");
 
 config.watchFolders = [...new Set([...(config.watchFolders ?? []), workspaceRoot])];
+const withImportCondition = (conditions = []) => [...new Set([...conditions, "import"])];
 config.resolver = {
   ...config.resolver,
+  unstable_conditionsByPlatform: {
+    ...config.resolver?.unstable_conditionsByPlatform,
+    android: withImportCondition(config.resolver?.unstable_conditionsByPlatform?.android),
+    ios: withImportCondition(config.resolver?.unstable_conditionsByPlatform?.ios),
+  },
   blockList: [
     ...(Array.isArray(config.resolver?.blockList)
       ? config.resolver.blockList
