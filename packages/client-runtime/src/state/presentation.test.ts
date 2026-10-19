@@ -53,6 +53,33 @@ function harness() {
   return { catalog, configs, state, full, ...summaries, registry: AtomRegistry.make() };
 }
 
+describe("environment connection before the supervisor reports", () => {
+  it("presents an enabled environment as connecting, not available", () => {
+    const h = harness();
+    try {
+      expect(h.registry.get(h.full.presentationAtom(FIRST))?.connection.phase).toBe("connecting");
+
+      h.registry.set(h.state, AsyncResult.success({ ...AVAILABLE_CONNECTION_STATE }));
+      expect(h.registry.get(h.full.presentationAtom(FIRST))?.connection.phase).toBe("available");
+    } finally {
+      h.registry.dispose();
+    }
+  });
+
+  it("keeps a disabled environment available", () => {
+    const h = harness();
+    try {
+      h.registry.set(h.catalog, {
+        isReady: true,
+        entries: new Map([[FIRST, { ...entry(FIRST), enabled: false }]]),
+      });
+      expect(h.registry.get(h.full.presentationAtom(FIRST))?.connection.phase).toBe("available");
+    } finally {
+      h.registry.dispose();
+    }
+  });
+});
+
 describe("environment summary subscriptions", () => {
   it("tracks capabilities across environments, config loss and removal", () => {
     const h = harness();

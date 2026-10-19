@@ -20,6 +20,14 @@ import {
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import { hasRelayRoute } from "../connection/routes.ts";
 
+const CONNECTING_CONNECTION_STATE: SupervisorConnectionState = Object.freeze({
+  ...AVAILABLE_CONNECTION_STATE,
+  desired: true,
+  phase: "connecting",
+  stage: "preparing",
+  attempt: 1,
+});
+
 function mapsEqual<K, V>(left: ReadonlyMap<K, V>, right: ReadonlyMap<K, V>): boolean {
   if (left.size !== right.size) {
     return false;
@@ -77,10 +85,16 @@ export function createEnvironmentPresentationAtoms<E>(input: {
       if (entry === undefined) {
         return null;
       }
-      const state = Option.getOrElse(
+      const supervisorState = Option.getOrElse(
         AsyncResult.value(get(input.stateAtom(environmentId))),
         () => AVAILABLE_CONNECTION_STATE,
       );
+      // The supervisor of an enabled environment starts out connecting, so the placeholder
+      // published before its first state arrives must not read as offline.
+      const state =
+        entry.enabled && supervisorState === AVAILABLE_CONNECTION_STATE
+          ? CONNECTING_CONNECTION_STATE
+          : supervisorState;
       const previous = Option.getOrNull(get.self<EnvironmentPresentation | null>());
       const connection: EnvironmentConnectionPresentation =
         entry.unsupportedReason === undefined
