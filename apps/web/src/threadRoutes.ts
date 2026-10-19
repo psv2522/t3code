@@ -37,7 +37,11 @@ export function resolveThreadRouteRenderState(input: {
   draftThreadExists: boolean;
   /** The app has no enabled connection to the thread's environment, so its shell never goes live. */
   environmentUnreachable?: boolean;
+  draftContextReady?: boolean;
 }): ThreadRouteRenderState {
+  if (input.draftThreadExists && input.draftContextReady === false) {
+    return "loading";
+  }
   if (input.draftThreadExists || (input.serverThreadExists && !input.serverThreadDeleted)) {
     return "ready";
   }

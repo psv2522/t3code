@@ -9,6 +9,8 @@ import { T } from "gt-react";
 import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
+import { ConnectingStateContent } from "./ConnectingState";
+import { resolveConnectingView } from "./ConnectingState.logic";
 import { BackgroundThreadContext, HiddenThreadContext } from "./chat/backgroundThread";
 import { Button } from "./ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
@@ -22,7 +24,8 @@ import {
 } from "../state/entities";
 import { environmentUnreachableAtom } from "../state/presentation";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { useEnvironmentShellStatus } from "../state/shell";
+import { useEnvironment } from "../state/environments";
+import { useEnvironmentShellHasSnapshot, useEnvironmentShellStatus } from "../state/shell";
 import { environmentThreadShells, threadFamilies, useEnvironmentThread } from "../state/threads";
 import {
   buildThreadRouteParams,
@@ -67,6 +70,8 @@ export function ThreadRouteView({
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
   );
+  const draftEnvironment = useEnvironment(draftSession?.environmentId ?? null);
+  const draftHasSnapshot = useEnvironmentShellHasSnapshot(draftSession?.environmentId ?? null);
   const draftRedirect = useComposerDraftStore((store) =>
     draftId === null ? null : store.getPromotedDraftRedirect(draftId),
   );
@@ -143,7 +148,9 @@ export function ThreadRouteView({
     serverThreadExists: serverThreadShell !== null,
     serverThreadDeleted: serverThreadShell?.deletedAt != null,
     unlistedThreadDetail,
-    draftThreadExists: draftThread !== null,
+    draftThreadExists: draftSession !== null || draftThread !== null,
+    draftContextReady:
+      draftSession === null || (draftHasSnapshot && draftEnvironment?.serverConfig != null),
     environmentUnreachable,
   });
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
@@ -173,6 +180,13 @@ export function ThreadRouteView({
     ) {
       // A draft whose thread is already live and hidden (mid-promotion): never mount it.
       redirect = <Navigate to="/" replace />;
+    } else if (draftSession && renderState === "loading") {
+      view = (
+        <ConnectingStateContent
+          draft
+          view={resolveConnectingView(draftEnvironment ? [draftEnvironment] : [])}
+        />
+      );
     } else if (draftSession) {
       view = (
         <ChatView

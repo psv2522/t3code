@@ -11,6 +11,7 @@ import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
 import { whenLocaleReady } from "./i18n/runtime";
 import { chunkLoadState } from "./lib/chunkReloadGuard";
+import { MainBackgroundStartup } from "./mainBackground";
 
 const stopTrackingKeyboardLayout = trackKeyboardLayout();
 import.meta.hot?.dispose(stopTrackingKeyboardLayout);
@@ -22,25 +23,35 @@ const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string
 const app = <AppRoot router={router} />;
 
 // Split by runtime to keep Clerk out of local startup and clerk-js out of browser builds.
-const managedAuthShellModule =
+const ManagedAuthShell =
   clerkPublishableKey && hasCloudPublicConfig()
-    ? isElectron
-      ? import("./components/clerk/ElectronManagedAuthShell")
-      : import("./components/clerk/BrowserManagedAuthShell")
+    ? React.lazy(() =>
+        isElectron
+          ? import("./components/clerk/ElectronManagedAuthShell")
+          : import("./components/clerk/BrowserManagedAuthShell"),
+      )
     : null;
 
-export const startup = Promise.all([
-  managedAuthShellModule?.then((module) => module.default) ?? null,
+export const startup = router
   // Chained so settings have usually hydrated; English resolves without a chunk load.
-  router.load().then(whenLocaleReady),
-])
-  .then(([ManagedAuthShell]) => {
+  .load()
+  .then(whenLocaleReady)
+  .then(() => {
     // Route chunk failures resolve router.load() and surface later through the error boundary.
     if (chunkLoadState.reloadScheduled) return;
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
+        <MainBackgroundStartup />
         {ManagedAuthShell && clerkPublishableKey ? (
-          <ManagedAuthShell publishableKey={clerkPublishableKey}>{app}</ManagedAuthShell>
+          <React.Suspense
+            fallback={
+              <main className="flex h-dvh items-center justify-center" role="status">
+                <img src="/apple-touch-icon.png" alt="T3 Code" className="size-16 object-contain" />
+              </main>
+            }
+          >
+            <ManagedAuthShell publishableKey={clerkPublishableKey}>{app}</ManagedAuthShell>
+          </React.Suspense>
         ) : (
           app
         )}

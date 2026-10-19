@@ -324,6 +324,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   );
   const session = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(Option.none());
   const prepared = yield* SubscriptionRef.make<Option.Option<PreparedConnection>>(Option.none());
+  const setPrepared = Effect.fnUntraced(function* (next: PreparedConnection) {
+    const current = yield* SubscriptionRef.get(prepared);
+    if (Option.isSome(current) && current.value === next) return;
+    yield* SubscriptionRef.set(prepared, Option.some(next));
+  });
   // Learned routes arrive while a session is live, so the route list is read
   // fresh by each attempt and check instead of being fixed at creation.
   const currentEntry = yield* Ref.make(entry);
@@ -503,7 +508,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     progress: ConnectionDriver.ConnectionDriverProgress,
   ) {
     if ("prepared" in progress) {
-      yield* SubscriptionRef.set(prepared, Option.some(progress.prepared));
+      yield* setPrepared(progress.prepared);
     }
     yield* setState(
       connectingState(yield* Ref.get(intent), nextGeneration, attempt, lastFailure, progress.stage),
@@ -1090,7 +1095,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     );
     const connectedAt = yield* Clock.currentTimeMillis;
     generation = nextGeneration;
-    yield* SubscriptionRef.set(prepared, Option.some(connectedLease.prepared));
+    yield* setPrepared(connectedLease.prepared);
     yield* SubscriptionRef.set(session, Option.some(connectedLease.session));
     if (options?.learnRoutes !== undefined) {
       yield* learnRoutesFrom(options.learnRoutes, connectedLease).pipe(Effect.forkScoped);
