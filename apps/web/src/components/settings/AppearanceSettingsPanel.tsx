@@ -30,6 +30,7 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+import { BackgroundImageSettings } from "./BackgroundImageSettings";
 import { TypographySection } from "./TypographySettings";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
@@ -377,6 +378,8 @@ export function AppearanceSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <BackgroundImageSettings />
 
       <SettingsSection id="motion" title="Motion">
         <SettingsRow

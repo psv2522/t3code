@@ -86,6 +86,7 @@ import {
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+import { startMainBackground } from "../mainBackground";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -184,6 +185,7 @@ function RootRouteView() {
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
           <GlassAppearanceSync />
+          <MainBackgroundSync />
           <FontAppearanceSync />
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
@@ -223,6 +225,7 @@ function RootRouteView() {
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
+        <MainBackgroundSync />
         <FontAppearanceSync />
         <ProviderAuthCallbackCoordinator />
         <ChatGptWelcomeCoordinator />
@@ -305,6 +308,11 @@ function GlassAppearanceSync() {
     }
   }, [glassOpacity]);
 
+  return null;
+}
+
+function MainBackgroundSync() {
+  useEffect(() => startMainBackground(), []);
   return null;
 }
 
