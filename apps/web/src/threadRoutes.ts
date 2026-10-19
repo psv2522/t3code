@@ -35,7 +35,11 @@ export function resolveThreadRouteRenderState(input: {
   serverThreadDeleted: boolean;
   unlistedThreadDetail: EnvironmentThreadState;
   draftThreadExists: boolean;
+  draftContextReady?: boolean;
 }): ThreadRouteRenderState {
+  if (input.draftThreadExists && input.draftContextReady === false) {
+    return "loading";
+  }
   if (input.draftThreadExists || (input.serverThreadExists && !input.serverThreadDeleted)) {
     return "ready";
   }

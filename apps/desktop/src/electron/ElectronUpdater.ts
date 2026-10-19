@@ -4,7 +4,12 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
-import { AppImageUpdater, autoUpdater } from "electron-updater";
+import type { AppImageUpdater, autoUpdater } from "electron-updater";
+
+const loadModule = Effect.promise(() => import("electron-updater")).pipe(
+  Effect.map((module) => module.default),
+);
+const loadUpdater = Effect.map(loadModule, (module) => module.autoUpdater);
 
 type AutoUpdater = typeof autoUpdater;
 type SpawnLog = (cmd: string, args?: Array<string>, ...rest: Array<unknown>) => Promise<boolean>;
@@ -17,7 +22,7 @@ const CLOSE_INHERITED_FDS_THEN_EXEC =
   'for fd in /proc/self/fd/*; do fd=${fd##*/}; case $fd in *[!0-9]*|[012]) ;; *) eval "exec $fd>&-" ;; esac; done; exec "$@"';
 
 const relaunchWithoutInheritedDescriptors = (updater: AppImageUpdater) => {
-  const spawnLog = (AppImageUpdater.prototype as unknown as { spawnLog: SpawnLog }).spawnLog;
+  const spawnLog = (updater as unknown as { spawnLog: SpawnLog }).spawnLog;
   (updater as unknown as { spawnLog: SpawnLog }).spawnLog = function (cmd, args = [], ...rest) {
     return spawnLog.call(
       this,
@@ -103,64 +108,64 @@ export class ElectronUpdater extends Context.Service<
 /** @public */
 export const make = ElectronUpdater.of({
   setFeedURL: Effect.fn("ElectronUpdater.setFeedURL")(function (options) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
       autoUpdater.setFeedURL(options);
       return Effect.void;
     });
   }),
   setAutoDownload: Effect.fn("ElectronUpdater.setAutoDownload")(function (value) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
       autoUpdater.autoDownload = value;
       return Effect.void;
     });
   }),
   setAutoInstallOnAppQuit: Effect.fn("ElectronUpdater.setAutoInstallOnAppQuit")(function (value) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
       autoUpdater.autoInstallOnAppQuit = value;
       return Effect.void;
     });
   }),
   setChannel: Effect.fn("ElectronUpdater.setChannel")(function (channel) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
       autoUpdater.channel = channel;
       return Effect.void;
     });
   }),
   setAllowPrerelease: Effect.fn("ElectronUpdater.setAllowPrerelease")(function (value) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
       autoUpdater.allowPrerelease = value;
       return Effect.void;
     });
   }),
-  allowDowngrade: Effect.sync(() => autoUpdater.allowDowngrade),
+  allowDowngrade: Effect.map(loadUpdater, (autoUpdater) => autoUpdater.allowDowngrade),
   setAllowDowngrade: Effect.fn("ElectronUpdater.setAllowDowngrade")(function (value) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
       autoUpdater.allowDowngrade = value;
       return Effect.void;
     });
   }),
   setFullChangelog: Effect.fn("ElectronUpdater.setFullChangelog")(function (value) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
       autoUpdater.fullChangelog = value;
       return Effect.void;
     });
   }),
   setDisableDifferentialDownload: Effect.fn("ElectronUpdater.setDisableDifferentialDownload")(
     function (value) {
-      return Effect.suspend(() => {
+      return Effect.flatMap(loadUpdater, (autoUpdater) => {
         autoUpdater.disableDifferentialDownload = value;
         return Effect.void;
       });
     },
   ),
-  checkForUpdates: Effect.suspend(() => {
+  checkForUpdates: Effect.flatMap(loadUpdater, (autoUpdater) => {
     const channel = autoUpdater.channel;
     return Effect.tryPromise({
       try: () => autoUpdater.checkForUpdates(),
       catch: (cause) => new ElectronUpdaterCheckForUpdatesError({ channel, cause }),
     }).pipe(Effect.asVoid);
   }),
-  downloadUpdate: Effect.suspend(() => {
+  downloadUpdate: Effect.flatMap(loadUpdater, (autoUpdater) => {
     const channel = autoUpdater.channel;
     return Effect.tryPromise({
       try: () => autoUpdater.downloadUpdate(),
@@ -171,7 +176,7 @@ export const make = ElectronUpdater.of({
     isSilent,
     isForceRunAfter,
   }) {
-    return Effect.suspend(() => {
+    return Effect.flatMap(loadModule, ({ AppImageUpdater, autoUpdater }) => {
       const channel = autoUpdater.channel;
       if (autoUpdater instanceof AppImageUpdater) relaunchWithoutInheritedDescriptors(autoUpdater);
       return Effect.try({
@@ -187,20 +192,22 @@ export const make = ElectronUpdater.of({
     });
   }),
   on: Effect.fn("ElectronUpdater.on")(function (eventName, listener) {
-    const eventTarget = autoUpdater as unknown as {
-      on: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
-      removeListener: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
-    };
-    const untypedListener = listener as unknown as (...args: Array<unknown>) => void;
-    return Effect.acquireRelease(
-      Effect.sync(() => {
-        eventTarget.on(eventName, untypedListener);
-      }),
-      () =>
+    return Effect.flatMap(loadUpdater, (autoUpdater) => {
+      const eventTarget = autoUpdater as unknown as {
+        on: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
+        removeListener: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
+      };
+      const untypedListener = listener as unknown as (...args: Array<unknown>) => void;
+      return Effect.acquireRelease(
         Effect.sync(() => {
-          eventTarget.removeListener(eventName, untypedListener);
+          eventTarget.on(eventName, untypedListener);
         }),
-    ).pipe(Effect.asVoid);
+        () =>
+          Effect.sync(() => {
+            eventTarget.removeListener(eventName, untypedListener);
+          }),
+      ).pipe(Effect.asVoid);
+    });
   }),
 });
 
