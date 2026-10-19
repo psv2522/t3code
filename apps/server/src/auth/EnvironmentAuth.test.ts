@@ -600,4 +600,61 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       expect(verified.sessionId).toBe(bearer.sessionId);
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
   );
+
+  const lanPeer = { socket: { remoteAddress: "192.168.1.23" } };
+  const loopbackPeer = { socket: { remoteAddress: "::ffff:127.0.0.1" } };
+
+  it.effect("accepts only T3 Connect sessions from the local network when LAN-only", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const paired = yield* serverAuth.issueSession();
+      const cloud = yield* sessions.issue({
+        subject: "cloud-connect",
+        method: "dpop-access-token",
+        proofKeyThumbprint: "test-proof-key",
+      });
+      const http = (source: object) =>
+        serverAuth.authenticateHttpRequest({
+          cookies: {},
+          headers: { authorization: `Bearer ${paired.token}` },
+          source,
+        } as never);
+      const upgrade = (sessionId: typeof paired.sessionId, source: object) =>
+        sessions.issueWebSocketToken(sessionId).pipe(
+          Effect.flatMap((ticket) =>
+            serverAuth.authenticateWebSocketUpgrade({
+              url: `/ws?wsTicket=${ticket.token}`,
+              cookies: {},
+              headers: { host: "192.168.1.50:3773" },
+              source,
+            } as never),
+          ),
+        );
+
+      expect((yield* Effect.flip(http(lanPeer)))._tag).toBe("ServerAuthInvalidCredentialError");
+      expect((yield* http(loopbackPeer)).sessionId).toBe(paired.sessionId);
+
+      expect((yield* Effect.flip(upgrade(paired.sessionId, lanPeer)))._tag).toBe(
+        "ServerAuthInvalidCredentialError",
+      );
+      expect((yield* upgrade(paired.sessionId, loopbackPeer)).sessionId).toBe(paired.sessionId);
+      expect((yield* upgrade(cloud.sessionId, lanPeer)).sessionId).toBe(cloud.sessionId);
+    }).pipe(
+      Effect.provide(layerEnvironmentAuth({ mode: "web", host: "0.0.0.0", lanConnectOnly: true })),
+    ),
+  );
+
+  it.effect("leaves local network clients alone unless LAN-only is on", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const paired = yield* serverAuth.issueSession();
+      const session = yield* serverAuth.authenticateHttpRequest({
+        cookies: {},
+        headers: { authorization: `Bearer ${paired.token}` },
+        source: lanPeer,
+      } as never);
+      expect(session.sessionId).toBe(paired.sessionId);
+    }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "0.0.0.0" }))),
+  );
 });

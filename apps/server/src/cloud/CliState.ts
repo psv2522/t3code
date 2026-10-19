@@ -1,5 +1,7 @@
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
@@ -15,11 +17,41 @@ import {
 } from "./config.ts";
 
 export const CLOUD_CLI_DESIRED_LINK_SECRET = "cloud-cli-desired-link";
+export const CLOUD_LAN_CONNECT_SECRET = "cloud-lan-connect";
 
 export type CliDesiredLinkMode = "managed" | "publish_only";
 
 const MANAGED_BYTES = new TextEncoder().encode("managed");
 const PUBLISH_ONLY_BYTES = new TextEncoder().encode("publish_only");
+const ENABLED_BYTES = new TextEncoder().encode("enabled");
+
+export const readCliLanConnect = Effect.gen(function* () {
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  return Option.isSome(yield* secrets.get(CLOUD_LAN_CONNECT_SECRET));
+});
+
+export const setCliLanConnect = Effect.fn("cloud.cli_state.set_lan_connect")(function* (
+  enabled: boolean,
+) {
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  if (enabled) {
+    yield* secrets.set(CLOUD_LAN_CONNECT_SECRET, ENABLED_BYTES);
+  } else {
+    yield* secrets.remove(CLOUD_LAN_CONNECT_SECRET);
+  }
+});
+
+// The secret store needs a resolved ServerConfig, and this flag decides that
+// config's bind host, so config resolution reads the file directly.
+export const readLanConnectFromSecretsDir = Effect.fn("cloud.cli_state.read_lan_connect")(
+  function* (secretsDir: string) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    return yield* fs
+      .exists(path.join(secretsDir, `${CLOUD_LAN_CONNECT_SECRET}.bin`))
+      .pipe(Effect.orElseSucceed(() => false));
+  },
+);
 
 export const readCliDesiredCloudLink = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;

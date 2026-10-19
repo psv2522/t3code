@@ -22,6 +22,7 @@ import { Argument, Flag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import { readBootstrapEnvelope } from "../bootstrap.ts";
+import { readLanConnectFromSecretsDir } from "../cloud/CliState.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
@@ -403,13 +404,14 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     () => 443,
   );
   const staticDir = devUrl ? undefined : yield* ServerConfig.resolveStaticDir();
+  const lanConnectOnly = yield* readLanConnectFromSecretsDir(derivedPaths.secretsDir);
   const host = Option.getOrElse(
     resolveOptionPrecedence(
       normalizedFlags.host,
       Option.fromUndefinedOr(env.host),
       Option.fromUndefinedOr(bootstrap?.host),
     ),
-    () => (mode === "desktop" ? "127.0.0.1" : undefined),
+    () => (lanConnectOnly ? "0.0.0.0" : mode === "desktop" ? "127.0.0.1" : undefined),
   );
   const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
 
@@ -475,6 +477,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     ...derivedPaths,
     serverTracePath,
     host,
+    ...(lanConnectOnly ? { lanConnectOnly } : {}),
     staticDir,
     devUrl,
     ...(devAuthToken === undefined ? {} : { devAuthToken }),

@@ -39,7 +39,29 @@ const layerTest = () =>
     ),
   );
 
+const layerWithConfig = () => {
+  const config = ServerConfig.layerTest(process.cwd(), { prefix: "t3-cloud-cli-state-test-" });
+  return Layer.merge(ServerSecretStore.layer.pipe(Layer.provide(config)), config);
+};
+
 it.layer(NodeServices.layer)("CliState", (it) => {
+  it.effect("persists LAN access where config resolution reads it before the store exists", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+
+      assert.isFalse(yield* CliState.readCliLanConnect);
+      assert.isFalse(yield* CliState.readLanConnectFromSecretsDir(config.secretsDir));
+
+      yield* CliState.setCliLanConnect(true);
+      assert.isTrue(yield* CliState.readCliLanConnect);
+      assert.isTrue(yield* CliState.readLanConnectFromSecretsDir(config.secretsDir));
+
+      yield* CliState.setCliLanConnect(false);
+      assert.isFalse(yield* CliState.readCliLanConnect);
+      assert.isFalse(yield* CliState.readLanConnectFromSecretsDir(config.secretsDir));
+    }).pipe(Effect.provide(layerWithConfig())),
+  );
+
   it.effect("persists desired exposure and clears provisioned relay state", () =>
     Effect.gen(function* () {
       const secrets = yield* ServerSecretStore.ServerSecretStore;

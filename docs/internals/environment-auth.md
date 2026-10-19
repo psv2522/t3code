@@ -85,6 +85,30 @@ transaction](../../apps/server/src/persistence/AuthSessions.ts); a failed
 replacement must leave the old credential usable. Pairing and browser sessions
 do not follow this replacement rule.
 
+### LAN-only listener
+
+`t3 connect lan on` binds the server to every interface but lets a non-loopback
+peer act only with a T3 Connect session: a DPoP session whose subject is
+`cloud-connect`. Pairing a client and exchanging that token with a DPoP proof
+also yields a DPoP session, so the method alone is not enough; the subject is
+what ties the session to the account the host is linked to. The
+[gate](../../apps/server/src/auth/lanAccess.ts) judges the socket's peer address.
+`Host` and `X-Forwarded-*` are client-controlled, and tunnel and Tailscale Serve
+traffic reaches the server from loopback, so they are unaffected.
+
+Two layers apply it. Session authentication rejects other sessions, on the
+WebSocket ticket path too. A router middleware also refuses the unauthenticated
+routes that turn a secret into a session (browser sign-in, OAuth token exchange,
+hooks, credential minting), so a new secret exchange cannot be abused without
+authenticating first. The public environment descriptor stays open because
+clients check the environment ID with it before sending any credential. New
+upstream routes that mint sessions belong on the denylist.
+
+The flag lives in the secrets directory and is read while resolving config,
+because the secret store itself depends on that config. Pairing URLs and the
+persisted runtime host stay on loopback while it is on: a LAN URL would only
+print an address the gate refuses.
+
 ### Reusable dev credential
 
 Web development environments can accept one `T3CODE_DEV_AUTH_TOKEN` across

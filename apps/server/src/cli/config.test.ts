@@ -23,6 +23,7 @@ import * as NetService from "@t3tools/shared/Net";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { CLOUD_LAN_CONNECT_SECRET } from "../cloud/CliState.ts";
 import { deriveServerPaths } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
 
@@ -163,6 +164,46 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(configResult.success.cwd).toBe(cwd);
         expect(yield* fs.exists(cwd)).toBe(true);
       }
+    }),
+  );
+
+  it.effect("listens on the network for T3 Connect devices only when LAN access is enabled", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-lan-" });
+      const resolve = (baseDir: string, host: Option.Option<string>) =>
+        resolveServerConfig(
+          { ...minimalWebFlags(baseDir), port: Option.some(8788), host },
+          Option.none(),
+        ).pipe(
+          Effect.provide(
+            Layer.merge(
+              NetService.layer,
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            ),
+          ),
+        );
+
+      const off = yield* resolve(path.join(root, "off"), Option.none());
+      expect(off.host).toBeUndefined();
+      expect(off.lanConnectOnly).toBeUndefined();
+
+      const baseDir = path.join(root, "on");
+      const { secretsDir } = yield* deriveExplicitServerPaths(baseDir, undefined);
+      yield* fs.makeDirectory(secretsDir, { recursive: true });
+      yield* fs.writeFileString(
+        path.join(secretsDir, `${CLOUD_LAN_CONNECT_SECRET}.bin`),
+        "enabled",
+      );
+
+      const on = yield* resolve(baseDir, Option.none());
+      expect(on.host).toBe("0.0.0.0");
+      expect(on.lanConnectOnly).toBe(true);
+
+      const explicit = yield* resolve(baseDir, Option.some("192.168.1.50"));
+      expect(explicit.host).toBe("192.168.1.50");
+      expect(explicit.lanConnectOnly).toBe(true);
     }),
   );
 

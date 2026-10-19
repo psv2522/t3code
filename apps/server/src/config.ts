@@ -72,6 +72,7 @@ export class ServerConfig extends Context.Service<
     readonly mode: RuntimeMode;
     readonly port: number;
     readonly host: string | undefined;
+    readonly lanConnectOnly?: boolean | undefined;
     readonly cwd: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;
@@ -224,6 +225,7 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     tailscaleServePort: 443,
     port: 0,
     host: undefined,
+    lanConnectOnly: false,
     desktopBootstrapToken: undefined,
     desktopTelemetryFd: undefined,
     desktopTelemetryControlFd: undefined,

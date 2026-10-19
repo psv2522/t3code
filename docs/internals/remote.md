@@ -44,7 +44,12 @@ client never costs a working session; a route that still fails afterwards is
 held back for a cooldown so a flaky network cannot bounce the connection.
 
 A connected server reports the LAN and tailnet addresses it is bound to, and the
-client saves them as learned routes. A learned route reuses the credential of
+client saves them as learned routes. A loopback bind reports none, which is why
+a headless host has no LAN route until it listens on the network; `t3 connect
+lan on` does that and restricts the listener to T3 Connect sessions (see
+[LAN-only listener](./environment-auth.md#lan-only-listener)). Addresses are
+re-read on each connect, so a host whose address changed is corrected by the next
+connection and not while a session stays open. A learned route reuses the credential of
 the route it was learned over: the T3 Connect access token, which is not bound
 to an origin because each DPoP proof names the URL it signs, or the paired
 bearer token. A paired token only learns a plain HTTP address off the tailnet

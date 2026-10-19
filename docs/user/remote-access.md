@@ -32,6 +32,33 @@ connection. Pull request diffs and provider settings keep working after the
 previous credential expires. A failed renewal affects that request; it does not
 disconnect an otherwise healthy conversation.
 
+### Use the LAN with T3 Connect
+
+A command-line or background-service host can also listen on the local network
+for your own devices only. On the host, run:
+
+```bash
+t3 connect lan on
+t3 service restart
+```
+
+Devices signed in to your T3 Connect account then connect over the LAN when they
+share a network with the host, and fall back to T3 Connect when they do not.
+Nothing else is accepted from the network: pairing links, browser sign-in, and
+tokens from other devices are refused, and `t3 pair` prints a link that works
+only on the host itself. Run `t3 connect lan off` and restart to listen on the
+host alone again, or `t3 connect lan status` to see the setting.
+
+Some things to know:
+
+- A new device connects through T3 Connect the first time. It switches to the
+  LAN after the host reports its addresses.
+- LAN routes use plain HTTP, so the hosted web app cannot use them.
+- iOS asks for Local Network access the first time it looks for the host. macOS
+  may ask whether to allow incoming connections the first time the host listens.
+- A LAN session still renews its access through T3 Connect about once an hour, so
+  keep the device online.
+
 ## Pair over a LAN or private network
 
 Use direct pairing when the other device can reach the host's network address.
@@ -79,8 +106,10 @@ While connected through T3 Connect or a paired address, T3 Code also learns the
 machine's current LAN and Tailscale addresses and adds them as routes, so
 pairing once through T3 Connect is enough to use the LAN at home. When the
 machine's LAN address changes, for example after it joins another Wi-Fi network,
-the learned route follows it. The machine must allow network access for its LAN
-address to be learned. You can reorder a learned route, but not remove it; it
+the learned route follows it. A machine only reports a LAN address when it
+accepts network connections: turn on **Network access** on a desktop host, or
+[use the LAN with T3 Connect](#use-the-lan-with-t3-connect) on a command-line
+host. You can reorder a learned route, but not remove it; it
 goes away with the route it was learned through, or when the machine stops
 reporting that address.
 

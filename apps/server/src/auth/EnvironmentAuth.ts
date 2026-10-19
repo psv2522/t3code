@@ -43,6 +43,7 @@ import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { REUSABLE_DEV_SESSION_EXPIRES_AT, resolveReusableDevAuth } from "./ReusableDevAuth.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
+import { isCloudConnectSession, isLanSource } from "./lanAccess.ts";
 import { DESKTOP_RENDERER_ORIGINS } from "../httpCors.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 
@@ -785,6 +786,18 @@ export const make = Effect.gen(function* () {
     ...config.devAllowedOrigins,
   ]);
 
+  const enforceLanPolicy = <S extends { readonly method: string; readonly subject: string }>(
+    request: HttpServerRequest.HttpServerRequest,
+    session: S,
+  ): Effect.Effect<S, ServerAuthInvalidCredentialError> =>
+    config.lanConnectOnly && isLanSource(request) && !isCloudConnectSession(session)
+      ? Effect.fail(
+          new ServerAuthInvalidCredentialError({
+            diagnostic: "Only T3 Connect sessions are accepted from the local network.",
+          }),
+        )
+      : Effect.succeed(session);
+
   const authenticateRequest = (
     request: HttpServerRequest.HttpServerRequest,
   ): Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError> => {
@@ -834,6 +847,7 @@ export const make = Effect.gen(function* () {
         }
         return Effect.succeed(session);
       }),
+      Effect.flatMap((session) => enforceLanPolicy(request, session)),
     );
   };
 
@@ -1247,6 +1261,7 @@ export const make = Effect.gen(function* () {
           return yield* sessions.verifyWebSocketToken(websocketTicket).pipe(
             mapSessionVerificationErrors,
             Effect.flatMap(rejectMcpClientAudience),
+            Effect.flatMap((session) => enforceLanPolicy(request, session)),
             Effect.map((session) => ({
               sessionId: session.sessionId,
               subject: session.subject,

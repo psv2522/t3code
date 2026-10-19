@@ -147,6 +147,7 @@ interface CloudCliStatus {
   readonly cloudUserId: string | null;
   readonly relayUrl: string | null;
   readonly publishAgentActivity: boolean;
+  readonly lanAccess: boolean;
   readonly relayClient: RelayClient.RelayClientStatus;
   readonly linkMode: CliState.CliDesiredLinkMode;
   /** `null` when no server answered the live check, or none ran because no tunnel is wanted. */
@@ -207,6 +208,7 @@ function formatCloudStatus(status: CloudCliStatus, options?: { readonly json?: b
     `  Environment link: ${provisioned}`,
     `  Relay: ${status.relayUrl ?? "not provisioned"}`,
     `  Publish agent activity: ${status.publishAgentActivity ? "enabled" : "disabled"}`,
+    `  LAN access: ${status.lanAccess ? "enabled" : "disabled"}`,
     ...formatRelayClientStatus(status.relayClient),
     ...(!status.desired || status.linkMode !== "managed"
       ? []
@@ -656,6 +658,7 @@ const connectStatusCommand = Command.make("status", {
           relayUrl,
           publishAgentActivity,
           revoked,
+          lanAccess,
           executable,
           linkMode,
         ] = yield* Effect.all(
@@ -666,6 +669,7 @@ const connectStatusCommand = Command.make("status", {
             secrets.get(RELAY_URL_SECRET),
             secrets.get(PUBLISH_AGENT_ACTIVITY_SECRET),
             secrets.get(CLOUD_LINK_REVOKED),
+            CliState.readCliLanConnect,
             relayClient.resolve,
             CliState.readCliDesiredLinkMode,
           ],
@@ -684,6 +688,7 @@ const connectStatusCommand = Command.make("status", {
           publishAgentActivity: isAgentActivityPublishingEnabledValue(
             Option.isSome(publishAgentActivity) ? bytesToString(publishAgentActivity.value) : null,
           ),
+          lanAccess,
           relayClient: executable,
           linkMode,
           reachability,
@@ -763,6 +768,67 @@ const connectPublishCommand = Command.make("publish", {
   ),
 );
 
+const connectLanOnCommand = Command.make("on", {
+  ...projectLocationFlags,
+}).pipe(
+  Command.withDescription("Listen on the local network, for T3 Connect devices only."),
+  Command.withHandler((flags) =>
+    runCloudCommand(
+      flags,
+      Effect.gen(function* () {
+        yield* CliState.setCliLanConnect(true);
+        const restartCommand = yield* resolveCliCommand("service restart");
+        yield* Console.log(
+          `✓ LAN access enabled\n\nNext\n  Run \`${restartCommand}\` to apply it. Only devices signed in to your T3 Connect account can connect over the LAN; pairing links stay local to this machine.`,
+        );
+      }),
+      { quietLogs: true },
+    ),
+  ),
+);
+
+const connectLanOffCommand = Command.make("off", {
+  ...projectLocationFlags,
+}).pipe(
+  Command.withDescription("Stop listening on the local network."),
+  Command.withHandler((flags) =>
+    runCloudCommand(
+      flags,
+      Effect.gen(function* () {
+        yield* CliState.setCliLanConnect(false);
+        const restartCommand = yield* resolveCliCommand("service restart");
+        yield* Console.log(
+          `✓ LAN access disabled\n\nNext\n  Run \`${restartCommand}\` to apply it.`,
+        );
+      }),
+      { quietLogs: true },
+    ),
+  ),
+);
+
+const connectLanStatusCommand = Command.make("status", {
+  ...projectLocationFlags,
+}).pipe(
+  Command.withDescription("Show whether LAN access for T3 Connect devices is enabled."),
+  Command.withHandler((flags) =>
+    runCloudCommand(
+      flags,
+      Effect.gen(function* () {
+        const enabled = yield* CliState.readCliLanConnect;
+        yield* Console.log(`LAN access: ${enabled ? "enabled" : "disabled"}`);
+      }),
+      { quietLogs: true },
+    ),
+  ),
+);
+
+const connectLanCommand = Command.make("lan").pipe(
+  Command.withDescription(
+    "Let your T3 Connect devices reach this machine over the local network first.",
+  ),
+  Command.withSubcommands([connectLanOnCommand, connectLanOffCommand, connectLanStatusCommand]),
+);
+
 const connectUnlinkCommand = Command.make("unlink", {
   ...projectLocationFlags,
 }).pipe(
@@ -836,6 +902,7 @@ export const connectCommand = Command.make("connect", {
     connectLinkCommand,
     connectPublishCommand,
     connectStatusCommand,
+    connectLanCommand,
     connectUnlinkCommand,
     connectLogoutCommand,
   ]),

@@ -397,3 +397,22 @@ describe("server ownership", () => {
     );
   });
 });
+
+describe("LAN-only runtime state", () => {
+  it.effect("records loopback for local tools while the server listens on the network", () =>
+    Effect.gen(function* () {
+      const lanOnly = yield* ServerRuntimeState.makePersistedServerRuntimeState({
+        config: { host: "0.0.0.0", devUrl: undefined, lanConnectOnly: true },
+        port: 3773,
+      });
+      assert.equal(lanOnly.host, "127.0.0.1");
+      assert.equal(lanOnly.origin, "http://127.0.0.1:3773");
+
+      const open = yield* ServerRuntimeState.makePersistedServerRuntimeState({
+        config: { host: "0.0.0.0", devUrl: undefined },
+        port: 3773,
+      });
+      assert.equal(open.host, "0.0.0.0");
+    }),
+  );
+});

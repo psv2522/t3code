@@ -51,14 +51,20 @@ const runtimeOriginForConfig = (
 };
 
 export const makePersistedServerRuntimeState = (input: {
-  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl">;
+  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl"> & {
+    readonly lanConnectOnly?: boolean | undefined;
+  };
   readonly port: number;
   readonly serviceManaged?: boolean;
 }): Effect.Effect<PersistedServerRuntimeState> =>
   Effect.map(DateTime.now, (now) => ({
     version: 1,
     pid: process.pid,
-    ...(input.config.host ? { host: input.config.host } : {}),
+    ...(input.config.lanConnectOnly
+      ? { host: "127.0.0.1" }
+      : input.config.host
+        ? { host: input.config.host }
+        : {}),
     port: input.port,
     origin: runtimeOriginForConfig(input.config, input.port),
     ...(input.config.devUrl ? { devUrl: input.config.devUrl.toString() } : {}),
