@@ -81,6 +81,11 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
     readonly authorizeDpopHttp: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
       readonly rejectedAccessToken?: string;
+      /**
+       * The request goes to a verified direct address, which accepts the
+       * persisted token before the cloud sign-in has loaded.
+       */
+      readonly direct?: boolean;
     }) => Effect.Effect<AuthorizedRemoteHttpEnvironment, ConnectionAttemptError>;
   }
 >()("@t3tools/client-runtime/authorization/service/RemoteEnvironmentAuthorization") {}
@@ -460,6 +465,55 @@ export const make = Effect.gen(function* () {
     },
   });
 
+  const usablePersistedToken = Effect.fnUntraced(function* (
+    environmentId: EnvironmentId,
+    rejectedAccessToken?: string,
+  ) {
+    const thumbprint = yield* signer.thumbprint;
+    const now = yield* Clock.currentTimeMillis;
+    const cached = yield* tokenStore.get(environmentId);
+    return Option.filter(
+      cached,
+      (token) =>
+        token.environmentId === environmentId &&
+        token.dpopThumbprint === thumbprint &&
+        token.expiresAtEpochMs > now + DPOP_ACCESS_TOKEN_REFRESH_SKEW_MS &&
+        token.accessToken !== rejectedAccessToken,
+    );
+  });
+
+  const authorizeCachedDirect = Effect.fn("clientRuntime.connection.remote.authorizeCachedDirect")(
+    function* (
+      environmentId: EnvironmentId,
+      endpoint: { readonly httpBaseUrl: string; readonly wsBaseUrl: string },
+    ) {
+      const token = yield* usablePersistedToken(environmentId);
+      if (Option.isNone(token)) return Option.none();
+      const socketUrl = yield* createDpopSocketUrl(
+        token.value,
+        CACHED_ENDPOINT_SOCKET_TIMEOUT_MS,
+        endpoint,
+      );
+      return Option.some({ ...httpAuthorization(token.value, endpoint.httpBaseUrl), socketUrl });
+    },
+  );
+
+  const authorizeDpopHttp = Effect.fn("environment.authorization.http")(function* (
+    input: Parameters<RemoteEnvironmentAuthorization["Service"]["authorizeDpopHttp"]>[0],
+  ) {
+    if (input.direct === true && Option.isNone(yield* cloudSession.identity)) {
+      const persisted = yield* usablePersistedToken(
+        input.expectedEnvironmentId,
+        input.rejectedAccessToken,
+      ).pipe(Effect.result);
+      if (Result.isSuccess(persisted) && Option.isSome(persisted.success)) {
+        return httpAuthorization(persisted.success.value);
+      }
+    }
+    const { token } = yield* getDpopToken(input);
+    return httpAuthorization(token);
+  });
+
   const authorizeDpop = Effect.fn("clientRuntime.connection.remote.authorizeDpop")(function* (
     input: Parameters<RemoteEnvironmentAuthorization["Service"]["authorizeDpop"]>[0],
   ) {
@@ -472,6 +526,14 @@ export const make = Effect.gen(function* () {
             httpBaseUrl: endpoint.httpBaseUrl,
             connectionMethod: "direct",
           });
+    if (endpoint !== undefined && Option.isNone(yield* cloudSession.identity)) {
+      const direct = yield* authorizeCachedDirect(input.expectedEnvironmentId, endpoint).pipe(
+        Effect.result,
+      );
+      if (Result.isSuccess(direct) && Option.isSome(direct.success)) {
+        return { ...direct.success.value, ...(descriptor === undefined ? {} : { descriptor }) };
+      }
+    }
     const authorized = (token: TokenStore.RemoteDpopAccessToken, socketUrl: string) => ({
       ...httpAuthorization(token, endpoint?.httpBaseUrl),
       socketUrl,
@@ -524,11 +586,7 @@ export const make = Effect.gen(function* () {
     }),
     // The relay tracer must wrap span creation, not just the token request.
     authorizeDpopHttp: Effect.fnUntraced(function* (input) {
-      return yield* getDpopToken(input).pipe(
-        Effect.map(({ token }) => httpAuthorization(token)),
-        Effect.withSpan("environment.authorization.http"),
-        withRelayClientTracing,
-      );
+      return yield* authorizeDpopHttp(input).pipe(withRelayClientTracing);
     }),
   });
 });
