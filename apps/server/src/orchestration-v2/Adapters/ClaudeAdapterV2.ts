@@ -238,6 +238,35 @@ function claudeAutoCompactThreshold(autoCompactWindow: string, maxTokens: number
     : {};
 }
 
+const ClaudeCompactSettings = Schema.Struct({
+  autoCompactWindow: Schema.optionalKey(Schema.Unknown),
+  modelSettings: Schema.optionalKey(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({ autoCompactWindow: Schema.optionalKey(Schema.Unknown) }),
+    ),
+  ),
+});
+const decodeClaudeCompactSettings = Schema.decodeUnknownOption(
+  fromLenientJson(ClaudeCompactSettings),
+);
+
+const CLAUDE_DEFAULT_COMPACT_WINDOW = "200000";
+
+// Mirrors ~/.claude/statusline.sh, which the owner reads context against:
+// per-model override, then the global value, then 200k, whatever the model's window.
+export function claudeCompactWindow(
+  settings: typeof ClaudeCompactSettings.Type,
+  apiModelId: string,
+): string {
+  const configured =
+    settings.modelSettings?.[apiModelId.replace(/\[[^\]]*\]$/u, "")]?.autoCompactWindow ??
+    settings.autoCompactWindow ??
+    CLAUDE_DEFAULT_COMPACT_WINDOW;
+  const window = String(configured);
+  return /^[1-9][0-9]*$/u.test(window) ? window : CLAUDE_DEFAULT_COMPACT_WINDOW;
+}
+
 function claudeMessageInputTokens(usage: {
   readonly input_tokens: number;
   readonly cache_creation_input_tokens?: number | null;
@@ -3867,6 +3896,7 @@ interface ActiveClaudeTurnContext {
   readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly nativeThreadId: string;
   readonly nativeTurnId: string;
+  readonly autoCompactWindow: string;
   nativeMessageCursor: string | null;
   readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
   readonly providerTurnOrdinal: number;
@@ -4518,6 +4548,20 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
       return claudeToolSearchOverride(adapterOptions.environment.ENABLE_TOOL_SEARCH);
     },
   );
+  const resolveAutoCompactWindow = Effect.fn("ClaudeAdapterV2.resolveAutoCompactWindow")(function* (
+    modelSelection: ModelSelection,
+  ) {
+    if (adapterOptions.settings.autoCompactWindow.length > 0) {
+      return adapterOptions.settings.autoCompactWindow;
+    }
+    const contents = yield* fileSystem
+      .readFileString(path.join(homePath, "settings.json"))
+      .pipe(Effect.option);
+    return claudeCompactWindow(
+      Option.getOrElse(Option.flatMap(contents, decodeClaudeCompactSettings), () => ({})),
+      compileClaudeModelSelection(modelSelection).apiModelId,
+    );
+  });
 
   const userInvocableSkills = (cwd: string | null) =>
     discoverClaudeSkills(
@@ -4900,7 +4944,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             usage,
             context.input.modelSelection,
             DateTime.formatIso(now),
-            adapterOptions.settings.autoCompactWindow,
+            context.autoCompactWindow,
             context.streamUsage?.requestedAt,
           );
           if (tokenUsage.inputTokens <= 0) return;
@@ -8456,10 +8500,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   tokenUsage: {
                     usedTokens: afterTokenCount,
                     maxTokens,
-                    ...claudeAutoCompactThreshold(
-                      adapterOptions.settings.autoCompactWindow,
-                      maxTokens,
-                    ),
+                    ...claudeAutoCompactThreshold(context.autoCompactWindow, maxTokens),
                     updatedAt: DateTime.formatIso(now),
                   },
                 },
@@ -10136,6 +10177,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               queryPolicy: querySession.queryPolicy,
               nativeThreadId,
               nativeTurnId,
+              autoCompactWindow: yield* resolveAutoCompactWindow(turnInput.modelSelection),
               nativeMessageCursor: null,
               providerTurnId,
               providerTurnOrdinal,

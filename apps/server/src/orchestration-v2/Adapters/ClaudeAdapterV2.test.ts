@@ -729,6 +729,42 @@ describe("ClaudeAdapterV2 device instructions", () => {
 });
 
 describe("ClaudeAdapterV2 context usage", () => {
+  it.each([
+    { settings: {}, model: "claude-opus-5-5", window: "200000" },
+    { settings: { autoCompactWindow: 300_000 }, model: "claude-opus-5-5", window: "300000" },
+    {
+      settings: {
+        autoCompactWindow: 300_000,
+        modelSettings: { "claude-haiku-5-5": { autoCompactWindow: 125_000 } },
+      },
+      model: "claude-haiku-5-5",
+      window: "125000",
+    },
+    {
+      settings: {
+        autoCompactWindow: 300_000,
+        modelSettings: { "claude-haiku-5-5": { autoCompactWindow: 125_000 } },
+      },
+      model: "claude-haiku-5-5[1m]",
+      window: "125000",
+    },
+    {
+      settings: {
+        autoCompactWindow: 300_000,
+        modelSettings: { "claude-haiku-5-5": { effortLevel: "xhigh" } },
+      },
+      model: "claude-haiku-5-5",
+      window: "300000",
+    },
+    { settings: { autoCompactWindow: "soon" }, model: "claude-opus-5-5", window: "200000" },
+    { settings: { autoCompactWindow: 0 }, model: "claude-opus-5-5", window: "200000" },
+  ])("resolves the compact window $window from $settings for $model", (input) => {
+    assert.strictEqual(
+      ClaudeAdapterV2.claudeCompactWindow(input.settings, input.model),
+      input.window,
+    );
+  });
+
   it("dates cache expiry from the request start, not the response end", () => {
     const usage = ClaudeAdapterV2.claudeProviderTurnTokenUsage(
       {
@@ -6087,17 +6123,76 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   );
 
   it.effect.each([
-    { autoCompactWindow: "", model: "claude-sonnet-4-6", threshold: undefined },
-    { autoCompactWindow: "150000", model: "claude-sonnet-4-6", threshold: 150_000 },
-    { autoCompactWindow: "200000", model: "claude-sonnet-4-6", threshold: undefined },
-    { autoCompactWindow: "650000", model: "claude-sonnet-4-6", threshold: undefined },
-    { autoCompactWindow: "650000", model: "uncatalogued-model", threshold: 650_000 },
+    {
+      autoCompactWindow: "",
+      claudeSettings: "{}",
+      model: "claude-sonnet-4-6",
+      threshold: undefined,
+    },
+    {
+      autoCompactWindow: "150000",
+      claudeSettings: "{}",
+      model: "claude-sonnet-4-6",
+      threshold: 150_000,
+    },
+    {
+      autoCompactWindow: "200000",
+      claudeSettings: "{}",
+      model: "claude-sonnet-4-6",
+      threshold: undefined,
+    },
+    {
+      autoCompactWindow: "650000",
+      claudeSettings: "{}",
+      model: "claude-sonnet-4-6",
+      threshold: undefined,
+    },
+    {
+      autoCompactWindow: "650000",
+      claudeSettings: "{}",
+      model: "uncatalogued-model",
+      threshold: 650_000,
+    },
+    {
+      autoCompactWindow: "",
+      claudeSettings: '{"autoCompactWindow":150000}',
+      model: "claude-sonnet-4-6",
+      threshold: 150_000,
+    },
+    {
+      autoCompactWindow: "",
+      claudeSettings:
+        '{"autoCompactWindow":300000,"modelSettings":{"claude-sonnet-4-6":{"autoCompactWindow":125000}}}',
+      model: "claude-sonnet-4-6",
+      threshold: 125_000,
+    },
+    {
+      autoCompactWindow: "100000",
+      claudeSettings: '{"autoCompactWindow":150000}',
+      model: "claude-sonnet-4-6",
+      threshold: 100_000,
+    },
+    {
+      autoCompactWindow: "",
+      claudeSettings: "{}",
+      model: "uncatalogued-model",
+      threshold: 200_000,
+    },
   ])(
-    "ignores stale snapshots after compaction and reports threshold $autoCompactWindow for $model",
-    ({ autoCompactWindow, model, threshold }) =>
+    "ignores stale snapshots after compaction and reports threshold $threshold for $autoCompactWindow, $claudeSettings on $model",
+    ({ autoCompactWindow, claudeSettings, model, threshold }) =>
       Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const configDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-compact-",
+        });
+        yield* fileSystem.writeFileString(
+          NodePath.join(configDir, "settings.json"),
+          claudeSettings,
+        );
         const harness = yield* makeWakeHarnessWithOptions({
           settings: { ...DEFAULT_CLAUDE_SETTINGS, autoCompactWindow },
+          environment: { CLAUDE_CONFIG_DIR: configDir },
         });
         yield* harness.runtime.startTurn(
           makeClaudeTestTurnInput({
