@@ -820,8 +820,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     },
   );
 
+  const scope = yield* Scope.Scope;
   if (Option.isSome(historyController)) {
-    const scope = yield* Scope.Scope;
     const registration = yield* historyController.value.register(environmentId, threadId, {
       loadEarlier: (throughEntryId) =>
         loadEarlier(throughEntryId).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
@@ -868,12 +868,19 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     );
   });
 
+  const markLive = SubscriptionRef.update(state, (value) => ({
+    ...value,
+    status: value.status === "deleted" ? value.status : ("live" as const),
+    error: Option.none(),
+  }));
+
   yield* markSynchronizing;
   yield* Effect.forkScoped(
     subscribeDynamic(
       ORCHESTRATION_V2_WS_METHODS.subscribeThread,
       Effect.fn("EnvironmentThreadState.makeSubscribeInput")(function* (session) {
-        let current = yield* SubscriptionRef.get(state);
+        const current = yield* SubscriptionRef.get(state);
+        let installing = false;
         // A prior definitive miss (or delete event) already cleared this thread.
         // Park the subscription attempt without opening the socket so we do not
         // retry forever against a known-missing id.
@@ -911,28 +918,37 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
               if (canLoadHistory && httpResult.history !== undefined) {
                 yield* Ref.set(acceptsBoundedSocketSnapshots, true);
               }
+              const history: ThreadHistoryMeta =
+                httpResult.history !== undefined
+                  ? {
+                      historyCursor: httpResult.history.historyCursor,
+                      hasMoreHistory: httpResult.history.hasMoreHistory,
+                      loading: false,
+                      error: null,
+                      expanded: false,
+                      latestLocalTurnOrdinal: httpResult.history.latestLocalTurnOrdinal ?? null,
+                    }
+                  : EMPTY_THREAD_HISTORY_META;
               // Atomic projection + progressive meta so a settled bounded window
               // never persists as a complete full-timeline cache entry. Socket
               // snapshots still go through applyItem (resetHistory).
-              yield* applyLock.withPermits(1)(
-                Effect.gen(function* () {
-                  yield* SubscriptionRef.set(lastSequence, httpResult.snapshot.snapshotSequence);
-                  const history: ThreadHistoryMeta =
-                    httpResult.history !== undefined
-                      ? {
-                          historyCursor: httpResult.history.historyCursor,
-                          hasMoreHistory: httpResult.history.hasMoreHistory,
-                          loading: false,
-                          error: null,
-                          expanded: false,
-                          latestLocalTurnOrdinal: httpResult.history.latestLocalTurnOrdinal ?? null,
-                        }
-                      : EMPTY_THREAD_HISTORY_META;
-                  yield* setThread(httpResult.snapshot.projection, { history });
-                  yield* remember;
-                }),
+              // Installed after the subscription goes out so rendering the snapshot
+              // does not delay it; the held lock keeps its events from applying first.
+              yield* Effect.uninterruptibleMask((restore) =>
+                restore(applyLock.take(1)).pipe(
+                  Effect.andThen(
+                    SubscriptionRef.set(lastSequence, httpResult.snapshot.snapshotSequence),
+                  ),
+                  Effect.andThen(
+                    Effect.gen(function* () {
+                      yield* setThread(httpResult.snapshot.projection, { history });
+                      yield* remember;
+                      if (!supportsCompletionMarker) yield* markLive;
+                    }).pipe(Effect.ensuring(applyLock.release(1)), Effect.forkIn(scope)),
+                  ),
+                ),
               );
-              current = yield* SubscriptionRef.get(state);
+              installing = true;
               break;
             }
             case "missing": {
@@ -946,14 +962,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         }
 
         const sequence = yield* SubscriptionRef.get(lastSequence);
-        const canResume = Option.isSome(current.data);
+        const canResume = installing || Option.isSome(current.data);
         const acceptBoundedSnapshot = yield* Ref.get(acceptsBoundedSocketSnapshots);
-        if (!supportsCompletionMarker && canResume) {
-          yield* SubscriptionRef.update(state, (value) => ({
-            ...value,
-            status: value.status === "deleted" ? value.status : ("live" as const),
-            error: Option.none(),
-          }));
+        if (!supportsCompletionMarker && canResume && !installing) {
+          yield* markLive;
         }
 
         return {
