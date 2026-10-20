@@ -21,7 +21,7 @@ const DIFF_WORKER_IDLE_TTL_MS = 30_000;
 function resolveDiffWorkerPoolSize() {
   const cores =
     typeof navigator === "undefined" ? 4 : Math.max(1, navigator.hardwareConcurrency || 4);
-  return Math.max(2, Math.min(6, Math.floor(cores / 2)));
+  return Math.max(2, Math.min(3, Math.floor(cores / 2)));
 }
 let sharedWorkerPool:
   | {
