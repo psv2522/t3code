@@ -3,8 +3,10 @@ import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
   PreviewAutomationClientDisconnectedError,
+  PreviewAutomationInvalidSelectorError,
   PreviewAutomationMalformedResponseError,
   PreviewAutomationNoAvailableHostError,
+  PreviewAutomationTimeoutError,
   PreviewTabId,
   ProviderInstanceId,
   ThreadId,
@@ -285,6 +287,62 @@ it.effect("announces a live replacement stream before delivering requests", () =
       expect(result).toBe("ready");
     }),
   ),
+);
+
+it.effect.each([
+  {
+    remoteError: {
+      _tag: "PreviewAutomationInvalidSelectorError",
+      message: "strict mode violation: locator resolved to 3 elements",
+      detail: { matchCount: 3 },
+    },
+    expected: PreviewAutomationInvalidSelectorError,
+    fields: { matchCount: 3 },
+    message: "Preview automation click's locator matched 3 elements and must match one.",
+  },
+  {
+    remoteError: {
+      _tag: "PreviewAutomationTimeoutError",
+      message: "No element matched the target.",
+      detail: { noMatch: true },
+    },
+    expected: PreviewAutomationTimeoutError,
+    fields: { noMatch: true },
+    message: "Preview automation click timed out after 1234ms. No element matched its locator.",
+  },
+] as const)(
+  "explains a remote $remoteError._tag from its detail",
+  ({ remoteError, expected, fields, message }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        const requests = requestsFrom(yield* broker.connect(makeHost()));
+        yield* Stream.runForEach(requests, (request) =>
+          broker.respond({
+            clientId: "client-1",
+            connectionId: request.connectionId,
+            requestId: request.requestId,
+            ok: false,
+            error: remoteError,
+          }),
+        ).pipe(Effect.forkScoped);
+        yield* Effect.yieldNow;
+
+        const error = yield* broker
+          .invoke<void>({
+            scope,
+            operation: "click",
+            input: { locator: "role=link[name='Providers']" },
+            tabId: PreviewTabId.make("tab-1"),
+            timeoutMs: 1_234,
+          })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(expected);
+        expect(error).toMatchObject(fields);
+        expect(error.message).toContain(message);
+      }),
+    ),
 );
 
 it.effect.each([
