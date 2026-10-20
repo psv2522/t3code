@@ -6,6 +6,7 @@ T3_HOME="${T3CODE_HOME:-$HOME/.t3}"
 OUT_ROOT="${P2CODE_OUT:-$HOME/.p2code}"
 APPS_DIR="${P2CODE_APPS_DIR:-/Applications}"
 INSTALLED_APP_NAME="${P2CODE_APP_NAME:-T3 Code (Nightly)}"
+SIGN_IDENTITY="${P2CODE_SIGN_IDENTITY:-p2code Local Signing}"
 SEA_NODE_VERSION="26.8.2"
 TARGET_PLATFORM="mac"
 TARGET_ARCH="arm64"
@@ -32,6 +33,7 @@ Usage: scripts/p2code.sh <command> [options]
   install [--yes]       Back up, then switch the background server and desktop app to the latest build
   all [--yes]           build, then install
   rollback [--yes]      Restore the app and background server from the latest backup
+  setup-signing         Create the self-signed certificate the desktop app is signed with (once)
   prune [--dry-run]     Delete old builds, backups and downloaded server versions (install runs it)
   build-node            Compile the pointer-compressed Node the server executable is built on (about an hour)
   version               Print the version the next build would use
@@ -47,6 +49,7 @@ Environment:
   P2CODE_VERSION        Override the computed version
   P2CODE_OUT            Output and backup root (default ~/.p2code)
   P2CODE_APPS_DIR       Where the desktop app lives (default /Applications)
+  P2CODE_SIGN_IDENTITY  Keychain identity that signs the desktop app (default "p2code Local Signing"; "-" signs ad hoc)
   P2CODE_VERBOSE=1      Same as --verbose
 EOF
 }
@@ -81,6 +84,17 @@ active_version() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not on PATH."
+}
+
+signing_identity_present() {
+  [[ "$SIGN_IDENTITY" != "-" ]] || return 0
+  local identities
+  identities="$(security find-identity -p codesigning)"
+  [[ "$identities" == *"\"$SIGN_IDENTITY\""* ]]
+}
+
+app_requirement() {
+  codesign -dr - "$1" 2>&1 | sed -n 's/^#* *designated => //p' || true
 }
 
 inside_t3_code() {
@@ -166,6 +180,8 @@ cmd_build() {
   require_cmd codesign
   require_cmd lipo
   require_cmd strip
+  require_cmd security
+  signing_identity_present || die "No '$SIGN_IDENTITY' signing identity in the keychain. Run: p2code setup-signing"
 
   cd "$REPO"
   local clean_path sea_node
@@ -269,7 +285,7 @@ cmd_build() {
   grep -aq 'relay.t3.codes' "$app/Contents/Resources/app.asar" || die "relay.t3.codes is not baked into the desktop bundle."
   grep -arqs 'relay.t3.codes' "$REPO/apps/server/dist" || die "relay.t3.codes is not baked into the server bundle."
   rm -f "$app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/"{libvk_swiftshader.dylib,vk_swiftshader_icd.json}
-  run codesign --force --deep --sign - "$app" || die "Ad hoc signing failed."
+  run codesign --force --deep --timestamp=none --sign "$SIGN_IDENTITY" "$app" || die "Signing with '$SIGN_IDENTITY' failed."
   run codesign --verify --deep --strict "$app" || die "Built app failed codesign verification."
   [[ "$(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')" == "com.t3tools.t3code" ]] ||
     die "Signed app has an unexpected bundle identifier."
@@ -351,6 +367,38 @@ backup_state() {
   fi
 }
 
+cmd_setup_signing() {
+  require_cmd security
+  [[ "$SIGN_IDENTITY" != "-" ]] || die "P2CODE_SIGN_IDENTITY is '-', which signs ad hoc. There is nothing to set up."
+  if signing_identity_present; then
+    log "Signing identity '$SIGN_IDENTITY' already exists"
+    return 0
+  fi
+  local work
+  work="$(mktemp -d)"
+  trap "rm -rf '$work'" EXIT
+  cat > "$work/openssl.cnf" <<EOF
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = $SIGN_IDENTITY
+[ext]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning
+EOF
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config "$work/openssl.cnf" \
+    -keyout "$work/key.pem" -out "$work/cert.pem" 2>/dev/null || die "Could not create the certificate."
+  /usr/bin/openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" -name "$SIGN_IDENTITY" \
+    -out "$work/identity.p12" -passout pass:p2code || die "Could not package the certificate."
+  security import "$work/identity.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P p2code -T /usr/bin/codesign >/dev/null ||
+    die "Could not import the identity into the login keychain."
+  log "Created signing identity '$SIGN_IDENTITY' in the login keychain"
+  printf 'The next build may ask whether codesign can use its key: choose Always Allow.\n'
+}
+
 cmd_install() {
   inside_t3_code && die "Run this from a plain terminal (Terminal, Ghostty, iTerm), not from inside T3 Code. It restarts the background server and quits the desktop app, which would kill this shell halfway."
   require_cmd sqlite3
@@ -382,8 +430,10 @@ cmd_install() {
   printf '  - back up databases, settings and %s.app to %s/backups\n' "$INSTALLED_APP_NAME" "$OUT_ROOT"
   printf '  - quit %s\n' "$INSTALLED_APP_NAME"
   printf '  - switch the background server %s -> %s (restarts it; running agent turns and terminals stop)\n' "$previous" "$version"
-  printf '  - replace %s/%s.app with the new build and reopen it\n' "$APPS_DIR" "$INSTALLED_APP_NAME"
-  printf '  - expect to sign in to T3 Connect again if macOS rejects the old keychain entry\n'
+  printf '  - replace %s/%s.app with the new build (left closed)\n' "$APPS_DIR" "$INSTALLED_APP_NAME"
+  if [[ "$(app_requirement "$built_app")" != "$(app_requirement "$APPS_DIR/$INSTALLED_APP_NAME.app")" ]]; then
+    printf '  - expect a keychain prompt for "%s Safe Storage" (choose Always Allow) and a T3 Connect sign-in: the signing identity changed\n' "$INSTALLED_APP_NAME"
+  fi
   printf '  - after the backup and again at the end, delete older builds, backups and downloaded server versions, keeping what rollback needs (p2code prune --dry-run lists them)\n\n'
   confirm "Continue?" || die "Cancelled."
 
@@ -425,12 +475,10 @@ cmd_install() {
   run "$T3_HOME/runtime/versions/$version/t3" service status || true
   end
 
-  begin "Replacing and reopening $INSTALLED_APP_NAME"
+  begin "Replacing $INSTALLED_APP_NAME"
   rm -rf "$APPS_DIR/$INSTALLED_APP_NAME.app"
   ditto "$built_app" "$APPS_DIR/$INSTALLED_APP_NAME.app"
   xattr -cr "$APPS_DIR/$INSTALLED_APP_NAME.app"
-
-  open "$APPS_DIR/$INSTALLED_APP_NAME.app"
   end
 
   if [[ -f "$build_dir/source-head" ]]; then
@@ -467,7 +515,6 @@ cmd_rollback() {
     begin "Restoring $INSTALLED_APP_NAME"
     rm -rf "$APPS_DIR/$INSTALLED_APP_NAME.app"
     tar -xzf "$backup/$INSTALLED_APP_NAME.app.tgz" -C "$APPS_DIR"
-    open "$APPS_DIR/$INSTALLED_APP_NAME.app"
     end
   fi
 
@@ -556,6 +603,7 @@ main() {
     install) cmd_install ;;
     all) cmd_build; cmd_install ;;
     rollback) cmd_rollback ;;
+    setup-signing) cmd_setup_signing ;;
     prune) cmd_prune ;;
     build-node) cmd_build_node ;;
     in-t3) inside_t3_code ;;
