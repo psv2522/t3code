@@ -1,3 +1,7 @@
+# The owner's shell exports pnpm_config_pm_on_fail=ignore; p2code must run upstream's
+# packageManager pnpm, or pnpm 12 rewrites every peer suffix in pnpm-lock.yaml.
+export pnpm_config_pm_on_fail=download
+
 VERBOSE="${P2CODE_VERBOSE:-0}"
 STEP_LOG=/dev/null
 STEP_LABEL=""
