@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   buildSubscriptionUsageSnapshot,
   createWidgetRefresher,
+  usageLimitsCheckedAt,
   WIDGET_REFRESH_INTERVAL,
 } from "./subscriptionUsageSnapshot";
 
@@ -136,6 +137,20 @@ describe("subscription widget snapshots", () => {
 });
 
 describe("widget refresh probes", () => {
+  it("dates server usage data by its oldest widget provider", () => {
+    const claude = provider({
+      instanceId: ProviderInstanceId.make("claude"),
+      driver: ProviderDriverKind.make("claudeAgent"),
+      usageLimits: { ...limits, checkedAt: "2026-09-05T11:58:00.000Z" },
+    });
+    expect(usageLimitsCheckedAt([provider(), claude])).toBe(now - 2 * 60_000);
+    expect(
+      usageLimitsCheckedAt([provider(), provider({ enabled: false, usageLimits: undefined })]),
+    ).toBe(now);
+    expect(usageLimitsCheckedAt([provider(), { ...claude, usageLimits: undefined }])).toBe(0);
+    expect(usageLimitsCheckedAt([])).toBe(0);
+  });
+
   it("does not overlap a slow probe even after the refresh interval", async () => {
     let finish!: () => void;
     const probe = vi.fn(
