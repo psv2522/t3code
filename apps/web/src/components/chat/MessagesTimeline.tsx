@@ -1474,11 +1474,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
               data-workspace-focus-default
               className={cn(
                 "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
-                topFadeEnabled && "topbar-scroll-fade",
+                topFadeEnabled && "isolate",
               )}
               ListHeaderComponent={listHeader}
               ListFooterComponent={timelineListFooter}
             />
+            {topFadeEnabled ? (
+              <div aria-hidden="true" className="topbar-scroll-fade-overlay" />
+            ) : null}
             <TimelineMinimap
               items={minimapItems}
               hasPersistentGutter={minimapHasPersistentGutter}

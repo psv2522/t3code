@@ -464,6 +464,20 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* Opaque glass hides its backdrop, but the filter still costs an offscreen pass per frame. */
+:root[data-glass-opaque] {
+  :is(.surface-glass, .alert-glass, .dialog-glass, .dropdown-glass),
+  :is(
+    [data-slot="composer-shell"],
+    [data-slot="composer-host"],
+    [data-composer-banner-surface]
+  )::before,
+  [data-chat-composer-main-surface] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 @utility topbar-scroll-fade {
   -webkit-mask-image:
     linear-gradient(
@@ -501,6 +515,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     100% calc(var(--workspace-titlebar-scroll-fade-height) + 1px),
     100% calc(100% - var(--workspace-titlebar-scroll-fade-height)),
     var(--app-scrollbar-width) 100%;
+}
+
+/* topbar-scroll-fade as a sibling overlay for scrollers on --background: masking
+   the scroller itself re-renders a viewport-sized offscreen pass every frame. */
+@utility topbar-scroll-fade-overlay {
+  --fade: var(--background);
+  position: absolute;
+  top: 0;
+  right: var(--app-scrollbar-width);
+  left: 0;
+  height: calc(var(--workspace-titlebar-scroll-fade-height) + 1px);
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--fade) 0%,
+    color-mix(in srgb, var(--fade) 90%, transparent) 10%,
+    color-mix(in srgb, var(--fade) 70%, transparent) 24%,
+    color-mix(in srgb, var(--fade) 42%, transparent) 42%,
+    color-mix(in srgb, var(--fade) 18%, transparent) 62%,
+    color-mix(in srgb, var(--fade) 4%, transparent) 82%,
+    transparent 100%
+  );
 }
 
 /* Virtualizers own their native scroll element, so they cannot use ScrollArea's
@@ -1798,6 +1834,10 @@ html[data-main-background] [data-draft-hero] {
 
 html[data-main-background] [data-draft-hero] > * {
   image-rendering: auto;
+}
+
+html[data-main-background] [data-draft-hero] .topbar-scroll-fade-overlay {
+  display: none;
 }
 
 html[data-main-background]
