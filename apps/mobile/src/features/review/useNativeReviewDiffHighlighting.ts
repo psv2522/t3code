@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   highlightNativeReviewDiffVisibleRows,
-  type NativeReviewDiffHighlightEngine,
   type NativeReviewDiffHighlightScheme,
 } from "../diffs/nativeReviewDiffHighlighter";
 import type { NativeReviewDiffRow } from "../diffs/nativeReviewDiffSurface";
@@ -69,7 +68,6 @@ export function useNativeReviewDiffHighlighting(input: {
 
     const abortController = new AbortController();
     const requestRange = visibleRange;
-    const engine: NativeReviewDiffHighlightEngine = "native";
 
     void (async () => {
       const settled = await settlePromise(() =>
@@ -77,7 +75,6 @@ export function useNativeReviewDiffHighlighting(input: {
           files,
           rows,
           scheme,
-          engine,
           firstRowIndex: requestRange.firstRowIndex,
           lastRowIndex: requestRange.lastRowIndex,
           alreadyHighlightedRowIds: highlightedRowIdsRef.current,

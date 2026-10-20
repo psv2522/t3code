@@ -389,6 +389,9 @@ patchedDependencies:
   # Observe the owned host exit independently of descendants retaining its stdio.
   "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
   app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
+  # Worklets Bundle Mode: rebuilds generated .worklets files and forwards HMR updates to worklet runtimes.
+  metro@0.87.1: patches/metro@0.87.1.patch
+  metro-runtime@0.87.1: patches/metro-runtime@0.87.1.patch
 
 peerDependencyRules:
   allowAny:

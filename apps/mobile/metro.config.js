@@ -3,6 +3,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { getDefaultConfig } = require("expo/metro-config");
 const { withUniwindConfig } = require("uniwind/metro");
+const { getBundleModeMetroConfig } = require("react-native-worklets/bundleMode");
 const extraThemes = require("./generated-uniwind-theme-names.json");
 
 /** @type {import("expo/metro-config").MetroConfig} */
@@ -151,11 +152,30 @@ async function prepareStreamScripts() {
   }
 }
 
+const uniwindPackageSegment = `${path.sep}node_modules${path.sep}uniwind${path.sep}`;
+
 module.exports = Promise.all([generateMobileThirdPartyLicenses(), prepareStreamScripts()]).then(
-  () =>
-    withUniwindConfig(config, {
+  () => {
+    const uniwindConfig = withUniwindConfig(config, {
       cssEntryFile: "./global.css",
       extraThemes,
       polyfills: { rem: 14 },
-    }),
+    });
+    const uniwindResolveRequest = uniwindConfig.resolver.resolveRequest;
+    const bundleModeConfig = getBundleModeMetroConfig(uniwindConfig);
+    const bundleModeResolveRequest = bundleModeConfig.resolver.resolveRequest;
+    // Both redirect "react-native": the worklets shim to Uniwind's wrapper, and the wrapper's
+    // own import back to the shim. Uniwind's import must reach React Native, or the cycle
+    // leaves it an empty module.
+    bundleModeConfig.resolver.resolveRequest = (context, moduleName, platform) =>
+      moduleName === "react-native" && context.originModulePath.includes(uniwindPackageSegment)
+        ? uniwindResolveRequest(context, moduleName, platform)
+        : bundleModeResolveRequest(context, moduleName, platform);
+    // Worklet runtimes run the main bundle but cannot fetch lazy dev chunks, so a dynamic
+    // import there (Shiki grammars) would hit an unknown module. Release bundles never split.
+    const rewriteRequestUrl = bundleModeConfig.server.rewriteRequestUrl ?? ((url) => url);
+    bundleModeConfig.server.rewriteRequestUrl = (url) =>
+      rewriteRequestUrl(url).replace(/([?&])lazy=true(?=&|$)/, "$1lazy=false");
+    return bundleModeConfig;
+  },
 );

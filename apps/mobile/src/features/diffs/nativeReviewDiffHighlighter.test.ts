@@ -28,11 +28,6 @@ vi.mock("@shikijs/core", async (importOriginal) => {
   };
 });
 
-vi.mock("react-native-shiki-engine", async () => {
-  const { createJavaScriptRegexEngine } = await import("@shikijs/engine-javascript");
-  return { isNativeEngineAvailable: () => true, createNativeEngine: createJavaScriptRegexEngine };
-});
-
 afterEach(() => {
   tokenization.calls = [];
   tokenization.afterCall = undefined;
@@ -73,7 +68,6 @@ function highlight(
     rows,
     files: [TYPESCRIPT_FILE],
     scheme: "dark",
-    engine: "javascript",
     firstRowIndex: 0,
     lastRowIndex: rows.length - 1,
     overscanRows: 0,
@@ -193,13 +187,12 @@ describe("highlightNativeReviewDiffVisibleRows", () => {
   });
 });
 
-describe.each(["native", "javascript"] as const)("%s highlighting budgets", (engine) => {
+describe("highlighting budgets", () => {
   const highlightRows = (rows: ReadonlyArray<NativeReviewDiffRow>, signal?: AbortSignal) =>
     highlightNativeReviewDiffVisibleRows({
       rows,
       files: [TYPESCRIPT_FILE],
       scheme: "dark",
-      engine,
       firstRowIndex: 0,
       lastRowIndex: rows.length - 1,
       overscanRows: 0,
@@ -227,7 +220,6 @@ describe.each(["native", "javascript"] as const)("%s highlighting budgets", (eng
     ] satisfies ReadonlyArray<NativeReviewDiffRow>;
     const result = await highlightRows(rows);
 
-    expect(result.engine).toBe(engine);
     expect(Object.keys(result.tokensByRowId)).toEqual(["line-1", "line-2", "line-3", "line-100"]);
     expect(result.tokensByRowId["line-2"]).toEqual([
       { content: longLine, color: null, fontStyle: null },
@@ -250,7 +242,6 @@ describe.each(["native", "javascript"] as const)("%s highlighting budgets", (eng
       rows,
       files: [TYPESCRIPT_FILE],
       scheme: "dark",
-      engine,
       firstRowIndex: 2,
       lastRowIndex: 3,
       overscanRows: 0,
