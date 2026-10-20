@@ -212,8 +212,9 @@ This checkout is `psv2522/p2code`, a private copy of `pingdotgg/t3code` (not a G
 - Local `main` only mirrors `upstream/main` (fast-forward only). Never commit to it.
 - All custom work lives on `p2code/custom`, always rebased onto `main`. It is pushed with `--force-with-lease`.
 - Carried on top of upstream: the lazy Cursor SDK load (upstream PR #19235), lazy provider drivers, and the p2code scripts. Drop a carried commit once upstream ships the equivalent.
+- Dependency bumps live in one `build(deps): bump carried dependencies` commit at the top of the stack. Fold new bumps into it (`git commit --fixup` plus `git rebase -i --autosquash main`) instead of adding commits, so a sync hits at most one lockfile conflict.
 - GitHub Actions are disabled on the fork. Do not re-enable them.
-- Keep custom changes small and local so rebasing stays cheap. A rebase conflict aborts the sync and lists the files; resolve by hand with `cd ~/Personal/Coding/p2code && git rebase main`.
+- Keep custom changes small and local so rebasing stays cheap. The sync enables `rerere` and continues past a stop only when recorded resolutions cover every conflict or `pnpm-lock.yaml` is the only one, which it regenerates from upstream's copy; it prints each auto-resolution. Any other conflict aborts the sync and lists the files. Resolve by hand with `cd ~/Personal/Coding/p2code && git rebase main`; rerere records that resolution for the next sync.
 
 ### Commands
 
