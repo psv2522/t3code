@@ -264,6 +264,11 @@ const classifyResponseError = (
     case "PreviewAutomationTimeoutError": {
       const remoteTimeoutMs = readRemoteTimeoutMs(error.detail);
       const remoteReason = readRemoteReason(error.detail);
+      const noMatch =
+        typeof error.detail === "object" &&
+        error.detail !== null &&
+        "noMatch" in error.detail &&
+        error.detail.noMatch === true;
       return new PreviewAutomationTimeoutError({
         ...context,
         ...remoteDiagnostics,
@@ -273,6 +278,7 @@ const classifyResponseError = (
         ...(remoteTimeoutMs === undefined
           ? {}
           : { timeoutMs: Math.min(context.timeoutMs, remoteTimeoutMs) }),
+        ...(noMatch ? { noMatch } : {}),
       });
     }
     case "PreviewAutomationControlInterruptedError": {
@@ -289,10 +295,20 @@ const classifyResponseError = (
         error.detail !== null &&
         "staleRef" in error.detail &&
         error.detail.staleRef === true;
+      const matchCount =
+        typeof error.detail === "object" &&
+        error.detail !== null &&
+        "matchCount" in error.detail &&
+        typeof error.detail.matchCount === "number" &&
+        Number.isInteger(error.detail.matchCount) &&
+        error.detail.matchCount > 1
+          ? error.detail.matchCount
+          : undefined;
       return new PreviewAutomationInvalidSelectorError({
         ...context,
         ...remoteDiagnostics,
         ...(staleRef ? { staleRef } : {}),
+        ...(matchCount === undefined ? {} : { matchCount }),
       });
     }
     case "PreviewAutomationTargetNotEditableError": {

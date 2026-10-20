@@ -19,6 +19,7 @@ const LIST_TIMEOUT_SECONDS = 40;
 // expo-device-hub 0.19.1 reports a failed simulator listing only as text; its error ids are hashes.
 const SIMULATOR_LIST_FAILED =
   /^\[apple-utils\] (?:Failed to (?:run `xcrun simctl list devices|parse JSON output:|list devices:)|`xcrun simctl list devices --json` did not respond within )/;
+const SHUTDOWN_TIMEOUT = Duration.minutes(1);
 
 const HubDevice = Schema.Struct({
   id: Schema.String,
@@ -232,7 +233,9 @@ export const makeDeviceHubOperations = (options: {
     function* (device) {
       const postShutdown = (path: string, body: Record<string, string>) =>
         postJson(path, body, "shutdown").pipe(
-          Effect.flatMap((request) => hubJson(request, HubActionResult, "shutdown")),
+          Effect.flatMap((request) =>
+            hubJson(request, HubActionResult, "shutdown", SHUTDOWN_TIMEOUT),
+          ),
           Effect.flatMap((result) =>
             result.ok
               ? Effect.void

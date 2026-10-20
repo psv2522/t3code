@@ -2191,6 +2191,8 @@ const make = Effect.gen(function* () {
         updateFileChooserInterception(tab);
         try {
           return await executeTabOperation(tab, request);
+        } catch (cause) {
+          throw await ServerBrowserPage.explainTimeout(tab.page, request, cause);
         } finally {
           tab.agentOperating = false;
           updateFileChooserInterception(tab);

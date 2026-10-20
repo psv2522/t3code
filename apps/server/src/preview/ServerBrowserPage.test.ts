@@ -119,6 +119,35 @@ describe("server browser element refs", () => {
     );
   });
 
+  it("reports how many elements an ambiguous locator matched", async () => {
+    await page.setContent(repeatedRows);
+    const error = await ServerBrowserPage.click(page, {
+      selector: 'button[data-testid="delete-row"]',
+      timeoutMs: 1_000,
+    }).catch(ServerBrowserPage.toOperationError);
+    expect(error).toMatchObject({
+      tag: "PreviewAutomationInvalidSelectorError",
+      detail: { matchCount: 5 },
+    });
+  });
+
+  it("tells a hover target that never matched apart from one that stayed hidden", async () => {
+    await page.setContent("<button hidden>Save</button>");
+    const explain = async (locator: string) => {
+      const input = { locator, timeoutMs: 200 };
+      const cause = await ServerBrowserPage.hover(page, input).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      return ServerBrowserPage.explainTimeout(page, { operation: "hover", input }, cause);
+    };
+    expect(await explain('role=link[name="Providers"]')).toMatchObject({
+      tag: "PreviewAutomationTimeoutError",
+      detail: { noMatch: true },
+    });
+    expect(await explain("button")).toMatchObject({ name: "TimeoutError" });
+  });
+
   it("does not retarget a removed ref to a replacement node", async () => {
     await page.setContent("<button onclick=\"this.textContent='clicked'\">original</button>");
     const locator = buttonLocator((await takeSnapshot()).accessibilityTree, "original");
