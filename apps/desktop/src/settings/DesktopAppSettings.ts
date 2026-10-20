@@ -473,6 +473,11 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const settingsRef = yield* SynchronizedRef.make(environment.defaultDesktopSettings);
+  const localEnvironmentAvailable = environment.isPackaged
+    ? yield* fileSystem.exists(environment.backendEntryPath).pipe(Effect.orElseSucceed(() => false))
+    : true;
+  const withLocalEnvironmentAvailability = (settings: DesktopSettings) =>
+    localEnvironmentAvailable ? settings : setLocalEnvironmentEnabled(settings, false);
 
   const updateInMemory = (update: (settings: DesktopSettings) => DesktopSettings) =>
     SynchronizedRef.modify(settingsRef, (settings) => {
@@ -521,7 +526,10 @@ export const make = Effect.gen(function* () {
         environment.desktopSettingsPath,
         environment.appVersion,
       );
-      return yield* SynchronizedRef.setAndGet(settingsRef, settings);
+      return yield* SynchronizedRef.setAndGet(
+        settingsRef,
+        withLocalEnvironmentAvailability(settings),
+      );
     }).pipe(Effect.withSpan("desktop.settings.load")),
     setMainWindowBounds: (bounds, isMaximized) =>
       persist((settings) => setMainWindowBounds(settings, bounds, isMaximized)).pipe(
@@ -562,7 +570,9 @@ export const make = Effect.gen(function* () {
         Effect.withSpan("desktop.settings.setWslOnly", { attributes: { enabled } }),
       ),
     setLocalEnvironmentEnabled: (enabled) =>
-      persist((settings) => setLocalEnvironmentEnabled(settings, enabled)).pipe(
+      persist((settings) =>
+        localEnvironmentAvailable ? setLocalEnvironmentEnabled(settings, enabled) : settings,
+      ).pipe(
         Effect.withSpan("desktop.settings.setLocalEnvironmentEnabled", { attributes: { enabled } }),
       ),
     applyWslWindowsFallback: persist(applyWslWindowsFallback).pipe(

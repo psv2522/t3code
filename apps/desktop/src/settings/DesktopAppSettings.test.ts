@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
@@ -10,6 +11,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopAppSettings from "./DesktopAppSettings.ts";
 
 const DesktopSettingsPatch = Schema.Struct({
+  localEnvironmentEnabled: Schema.optionalKey(Schema.Boolean),
   linuxPasswordStore: Schema.optionalKey(
     Schema.Literals(["auto", "gnome-libsecret", "kwallet", "kwallet5", "kwallet6"]),
   ),
@@ -38,14 +40,14 @@ const DesktopSettingsPatch = Schema.Struct({
 const decodeDesktopSettingsPatch = Schema.decodeEffect(Schema.fromJsonString(DesktopSettingsPatch));
 const encodeDesktopSettingsPatch = Schema.encodeEffect(Schema.fromJsonString(DesktopSettingsPatch));
 
-function layerEnvironment(baseDir: string, appVersion = "0.0.17") {
+function layerEnvironment(baseDir: string, appVersion = "0.0.17", appPath = "/repo") {
   return DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: baseDir,
     platform: "darwin",
     processArch: "x64",
     appVersion,
-    appPath: "/repo",
+    appPath,
     isPackaged: true,
     resourcesPath: "/missing/resources",
     runningUnderArm64Translation: false,
@@ -62,17 +64,29 @@ const withSettings = <A, E, R>(
     E,
     R | DesktopAppSettings.DesktopAppSettings | DesktopEnvironment.DesktopEnvironment
   >,
-  options?: { readonly appVersion?: string },
+  options?: { readonly appVersion?: string; readonly serverBundled?: boolean },
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const baseDir = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "t3-desktop-settings-test-",
     });
+    if (options?.serverBundled === true) {
+      const entryDirectory = path.join(baseDir, "apps", "server", "dist");
+      yield* fileSystem.makeDirectory(entryDirectory, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(entryDirectory, "bin.mjs"), "");
+    }
     return yield* effect.pipe(
       Effect.provide(
         DesktopAppSettings.layer.pipe(
-          Layer.provideMerge(layerEnvironment(baseDir, options?.appVersion)),
+          Layer.provideMerge(
+            layerEnvironment(
+              baseDir,
+              options?.appVersion,
+              options?.serverBundled === true ? baseDir : undefined,
+            ),
+          ),
           Layer.provideMerge(NodeServices.layer),
         ),
       ),
@@ -106,7 +120,19 @@ describe("DesktopSettings", () => {
           yield* settings.setLocalEnvironmentEnabled(false);
           assert.deepEqual(yield* settings.load, before);
         }),
+        { serverBundled: true },
       ),
+  );
+  it.effect("keeps the local environment off when the app ships no server", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* writeSettingsPatch({ localEnvironmentEnabled: true });
+        assert.isFalse((yield* settings.load).localEnvironmentEnabled);
+        assert.isFalse((yield* settings.setLocalEnvironmentEnabled(true)).changed);
+        assert.isFalse((yield* settings.get).localEnvironmentEnabled);
+      }),
+    ),
   );
 
   it.effect("falls back to defaults when the settings file is malformed", () =>
