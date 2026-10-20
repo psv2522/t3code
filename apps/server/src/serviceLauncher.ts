@@ -20,6 +20,7 @@ import type {
   ServiceUpdateRecord,
 } from "./cloud/serviceProtocol.ts";
 import {
+  BOOT_SERVICE_LOG_FILE,
   compareExactServiceVersions,
   decodeServiceLauncherChildMessage,
   isExactServiceVersion,
@@ -39,6 +40,8 @@ const HANDOFF_DELAY_MS = 2_000;
  */
 const PREPARED_TIMEOUT_MS = 30 * 60_000;
 const TERMINATE_GRACE_MS = 5_000;
+const SERVICE_LOG_MAX_BYTES = 16 * 1024 * 1024;
+const SERVICE_LOG_CHECK_INTERVAL_MS = 10 * 60_000;
 // Matches SERVER_EXIT_CODE_STATE_DIR_OWNED in contracts. The standalone
 // launcher stays independent of the Effect-backed contracts package.
 const STATE_DIR_OWNED_EXIT_CODE = 78;
@@ -458,6 +461,18 @@ async function terminateChild(
   }
 }
 
+// The manager opens the log for the service's stdout and stderr and keeps it open, so rotation
+// copies and truncates in place instead of renaming.
+export async function trimServiceLog(logPath: string, maxBytes: number): Promise<void> {
+  const size = await NodeFSP.stat(logPath).then(
+    (stats) => stats.size,
+    () => 0,
+  );
+  if (size <= maxBytes) return;
+  await NodeFSP.copyFile(logPath, `${logPath}.1`);
+  await NodeFSP.truncate(logPath, 0);
+}
+
 const stopMarkerPath = (baseDir: string) =>
   NodePath.join(baseDir, "runtime", SERVICE_STOP_MARKER_FILE);
 const restartPendingPath = (baseDir: string) =>
@@ -476,6 +491,7 @@ export class Launcher {
   readonly #completion = Promise.withResolvers<void>();
   readonly #backupSpaceProbe: Partial<BackupSpaceProbe> | undefined;
   readonly #environment: Readonly<NodeJS.ProcessEnv>;
+  readonly #logPath: string;
 
   constructor(
     baseDir: string,
@@ -489,6 +505,7 @@ export class Launcher {
     this.#backupSpaceProbe = options.backupSpaceProbe;
     this.#environment = { ...(options.environment ?? process.env) };
     this.#statePath = NodePath.join(baseDir, "runtime", SERVICE_STATE_FILE);
+    this.#logPath = NodePath.join(baseDir, "userdata", "logs", BOOT_SERVICE_LOG_FILE);
     this.#state = state;
   }
 
@@ -497,13 +514,20 @@ export class Launcher {
     const onSigint = () => void this.stop("SIGINT");
     process.once("SIGTERM", onSigterm);
     process.once("SIGINT", onSigint);
+    const logTrimTimer = setInterval(() => void this.#trimLog(), SERVICE_LOG_CHECK_INTERVAL_MS);
+    logTrimTimer.unref();
     try {
       this.#enqueue(() => this.#recover());
       await this.#completion.promise;
     } finally {
+      clearInterval(logTrimTimer);
       process.off("SIGTERM", onSigterm);
       process.off("SIGINT", onSigint);
     }
+  }
+
+  #trimLog(): Promise<void> {
+    return trimServiceLog(this.#logPath, SERVICE_LOG_MAX_BYTES).catch(() => undefined);
   }
 
   #enqueue(transition: () => Promise<void>): void {
@@ -610,6 +634,7 @@ export class Launcher {
       throw new Error(`Selected t3@${version} runtime is missing or incomplete.`);
     }
     if (this.#stopping) return;
+    await this.#trimLog();
     const paths = runtimePaths(this.#baseDir, version);
     const context: ServiceLauncherContext = {
       protocol: SERVICE_LAUNCHER_PROTOCOL,
