@@ -109,17 +109,57 @@ new_main="$(git rev-parse main)"
 new_commits="$(git rev-list --count "$old_main..$new_main")"
 printf '  main: %s new upstream commit(s), now at %s\n' "$new_commits" "$(git log --oneline -1 main)"
 
+AUTO_RESOLVED=()
+
+# Continues only past stops where rerere replayed every conflict or pnpm-lock.yaml is the
+# sole conflict; the lockfile is then regenerated from upstream's copy.
+rebase_onto_main() {
+  local rebase_dir output commit path msgnum
+  rebase_dir="$(git rev-parse --git-path rebase-merge)"
+  if output="$(git rebase main 2>&1)"; then
+    printf '%s\n' "$output" >>"$STEP_LOG"
+    return 0
+  fi
+  printf '%s\n' "$output" >>"$STEP_LOG"
+  while [[ -d "$rebase_dir" ]]; do
+    [[ -z "$(git diff --name-only --diff-filter=U -- . ':!pnpm-lock.yaml')" ]] || return 1
+    commit="$(git log -1 --format='%h %s' REBASE_HEAD)"
+    while IFS= read -r path; do
+      [[ -z "$path" || "$path" == pnpm-lock.yaml ]] || AUTO_RESOLVED+=("$commit: $path (recorded resolution)")
+    done <<<"$(sed -n -E "s/^(Staged|Resolved) '(.*)' using previous resolution\.$/\2/p" <<<"$output")"
+    if [[ -n "$(git diff --name-only --diff-filter=U -- pnpm-lock.yaml)" ]] ||
+      grep -q "'pnpm-lock.yaml' using previous resolution" <<<"$output"; then
+      git checkout HEAD -- pnpm-lock.yaml && run pnpm install --lockfile-only && git add pnpm-lock.yaml || return 1
+      AUTO_RESOLVED+=("$commit: pnpm-lock.yaml (regenerated)")
+    fi
+    msgnum="$(cat "$rebase_dir/msgnum")"
+    if output="$(GIT_EDITOR=true git rebase --continue 2>&1)"; then
+      printf '%s\n' "$output" >>"$STEP_LOG"
+      return 0
+    fi
+    printf '%s\n' "$output" >>"$STEP_LOG"
+    [[ "$(cat "$rebase_dir/msgnum" 2>/dev/null)" != "$msgnum" ]] || return 1
+  done
+  return 1
+}
+
+git config rerere.enabled true
+git config rerere.autoUpdate true
+
 begin "Rebasing $WORK_BRANCH onto main"
-if ! git rebase main >>"$STEP_LOG" 2>&1; then
+if ! rebase_onto_main; then
   printf 'FAILED\n'
   conflicts="$(git diff --name-only --diff-filter=U || true)"
   git rebase --abort || true
   printf '%s\n' "$conflicts" | sed 's/^/  conflict: /'
-  die "Rebase hit conflicts and was aborted; the repo is back where it was. Resolve by hand: cd $REPO && git rebase main"
+  die "Rebase hit conflicts and was aborted; the repo is back where it was. Resolve by hand (recorded resolutions replay): cd $REPO && git rebase main. Log: $STEP_LOG"
 fi
 head="$(git rev-parse HEAD)"
 end
 printf '  head: %s (carrying %s local commit(s) on top of main)\n' "$(git log --oneline -1)" "$(git rev-list --count main..HEAD)"
+for resolved in ${AUTO_RESOLVED[@]+"${AUTO_RESOLVED[@]}"}; do
+  printf '  auto-resolved: %s\n' "$resolved"
+done
 
 installed=""
 if [[ -f "$STATE_FILE" ]]; then
