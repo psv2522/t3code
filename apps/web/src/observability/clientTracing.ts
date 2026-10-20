@@ -13,7 +13,7 @@ import * as PrimaryEnvironmentHttpLayer from "../environments/primary/httpLayer"
 import { isElectron } from "../env";
 import { APP_VERSION } from "~/branding";
 
-const DEFAULT_EXPORT_INTERVAL_MS = 1_000;
+const DEFAULT_EXPORT_INTERVAL_MS = 10_000;
 const CLIENT_TRACING_RESOURCE = {
   serviceName: "t3code-web",
   attributes: {
