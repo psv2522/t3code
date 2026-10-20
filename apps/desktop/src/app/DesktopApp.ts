@@ -268,7 +268,11 @@ const startup = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const previewPasskeys = yield* PreviewPasskeys.PreviewPasskeys;
 
-  yield* shellEnvironment.installIntoProcess;
+  if (environment.platform === "linux") {
+    yield* shellEnvironment.installIntoProcess;
+  } else {
+    yield* Effect.forkScoped(shellEnvironment.installIntoProcess);
+  }
   const hasCommandLinePasswordStore =
     preReadyElectronOptions.linuxPasswordStoreCommandLine !== null;
   const linuxElectronOptions =
@@ -329,6 +333,7 @@ const startup = Effect.gen(function* () {
   yield* DesktopStartupRecovery.listen;
   yield* linuxUrlHandler.register;
   yield* bootstrap.pipe(Effect.catchCause((cause) => fatalStartupCause("bootstrap", cause)));
+  yield* shellEnvironment.installIntoProcess;
 }).pipe(Effect.withSpan("desktop.startup"));
 
 const scopedProgram = Effect.scoped(
