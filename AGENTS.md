@@ -285,5 +285,5 @@ In the desktop app the sidebar update button, Settings → About "Check for Upda
 - Commit before building. The build refuses a dirty tree. Do not run a build while rebasing or switching branches; the build reads the working tree.
 - Do not edit `scripts/p2code*.sh` while a run is in flight. Bash reads scripts incrementally and a mid-run change causes bogus syntax errors. Keep `main "$@"; exit $?` at the end of `p2code.sh` and the outer brace group with `exit 0` in `p2code-update.sh`.
 - Do not add database migrations or change relay contracts (`packages/contracts` relay surface, `infra/relay`) unless the owner asks. Migrations collide with upstream numbering, and the relay is T3's own service.
-- Use `pnpm` and `vp`, not `npm`.
+- Use `pnpm` and `vp`, not `npm`. Tooling matches upstream: vite-plus comes from upstream's catalog (do not bump it here) and pnpm from `packageManager`. The owner's shell sets `pnpm_config_pm_on_fail=ignore`, which runs the global pnpm 12; `scripts/p2code-lib.sh` exports `download` instead. Set the same before `vp i` or regenerating `pnpm-lock.yaml` by hand. Node stays ours: `SEA_NODE_VERSION` and the pointer-compressed build.
 - Match the owner's commit style (Conventional Commits). Prefer no code comments unless a future editor would be misled without one.
