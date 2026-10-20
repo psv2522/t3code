@@ -253,11 +253,18 @@ const classifyResponseError = (
         ...context,
         ...remoteDiagnostics,
       });
-    case "PreviewAutomationTimeoutError":
+    case "PreviewAutomationTimeoutError": {
+      const noMatch =
+        typeof error.detail === "object" &&
+        error.detail !== null &&
+        "noMatch" in error.detail &&
+        error.detail.noMatch === true;
       return new PreviewAutomationTimeoutError({
         ...context,
         ...remoteDiagnostics,
+        ...(noMatch ? { noMatch } : {}),
       });
+    }
     case "PreviewAutomationControlInterruptedError": {
       const reason = decodeControlReason(error.detail);
       return new PreviewAutomationControlInterruptedError({
@@ -272,10 +279,20 @@ const classifyResponseError = (
         error.detail !== null &&
         "staleRef" in error.detail &&
         error.detail.staleRef === true;
+      const matchCount =
+        typeof error.detail === "object" &&
+        error.detail !== null &&
+        "matchCount" in error.detail &&
+        typeof error.detail.matchCount === "number" &&
+        Number.isInteger(error.detail.matchCount) &&
+        error.detail.matchCount > 1
+          ? error.detail.matchCount
+          : undefined;
       return new PreviewAutomationInvalidSelectorError({
         ...context,
         ...remoteDiagnostics,
         ...(staleRef ? { staleRef } : {}),
+        ...(matchCount === undefined ? {} : { matchCount }),
       });
     }
     case "PreviewAutomationTargetNotEditableError": {

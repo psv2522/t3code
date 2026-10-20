@@ -53,6 +53,12 @@ export const toOperationError = (cause: unknown): ServerBrowserOperationError =>
   if (cause instanceof Error && cause.name === "TimeoutError") {
     return new ServerBrowserOperationError("PreviewAutomationTimeoutError", firstLine);
   }
+  const ambiguous = /strict mode violation: .* resolved to (\d+) elements/i.exec(firstLine);
+  if (ambiguous) {
+    return new ServerBrowserOperationError("PreviewAutomationInvalidSelectorError", firstLine, {
+      matchCount: Number(ambiguous[1]),
+    });
+  }
   if (
     /while parsing selector|Unknown engine|Unexpected token|strict mode violation/i.test(message)
   ) {
@@ -65,6 +71,9 @@ export const toOperationError = (cause: unknown): ServerBrowserOperationError =>
 };
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+// The broker allows the host one second past the operation timeout to answer.
+const NO_MATCH_CHECK_MS = 500;
+const TARGETED_OPERATIONS = new Set(["click", "hover", "select", "type", "upload", "scroll"]);
 
 const pageRefs = new WeakMap<Page, { generation: string; refs: Map<string, string> }>();
 // A compact runtime namespace prevents old refs from aliasing after a server restart.
@@ -117,6 +126,36 @@ const targetLocator = (
   }
   // Playwright's strict locators reject ambiguous controls rather than acting on row one.
   return page.locator(selector);
+};
+
+export const explainTimeout = async (
+  page: Page,
+  request: { readonly operation: string; readonly input: unknown },
+  cause: unknown,
+) => {
+  if (!(cause instanceof Error && cause.name === "TimeoutError")) return cause;
+  if (!TARGETED_OPERATIONS.has(request.operation)) return cause;
+  let locator: Locator | null;
+  try {
+    locator = targetLocator(page, request.input as Parameters<typeof targetLocator>[1]);
+  } catch {
+    return cause;
+  }
+  if (locator === null) return cause;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), NO_MATCH_CHECK_MS);
+  });
+  const count = await Promise.race([locator.count().catch(() => undefined), late]).finally(() =>
+    clearTimeout(timer),
+  );
+  return count === 0
+    ? new ServerBrowserOperationError(
+        "PreviewAutomationTimeoutError",
+        "No element matched the target.",
+        { noMatch: true },
+      )
+    : cause;
 };
 
 export type PointerReporter = (
