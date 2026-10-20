@@ -16,6 +16,7 @@ import {
   readServiceEnvironment,
   type BackupSpaceProbe,
   readServiceState,
+  trimServiceLog,
   writeServiceState,
 } from "./serviceLauncher.ts";
 import {
@@ -171,6 +172,28 @@ it.layer(NodeServices.layer)("service state persistence", (it) => {
           EMPTY: "",
         });
       }),
+  );
+
+  it.effect("trims an oversized service log in place and keeps one rotated copy", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-service-log-" });
+      const logPath = path.join(root, "boot-service.log");
+
+      yield* Effect.promise(() => trimServiceLog(logPath, 8));
+      assert.isFalse(yield* fs.exists(logPath));
+
+      yield* fs.writeFileString(logPath, "12345678");
+      yield* Effect.promise(() => trimServiceLog(logPath, 8));
+      assert.strictEqual(yield* fs.readFileString(logPath), "12345678");
+      assert.isFalse(yield* fs.exists(`${logPath}.1`));
+
+      yield* fs.writeFileString(logPath, "123456789");
+      yield* Effect.promise(() => trimServiceLog(logPath, 8));
+      assert.strictEqual(yield* fs.readFileString(logPath), "");
+      assert.strictEqual(yield* fs.readFileString(`${logPath}.1`), "123456789");
+    }),
   );
 
   it.effect("a fresh launcher clears a restart deferred by t3 update", () =>
