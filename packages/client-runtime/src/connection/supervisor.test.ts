@@ -496,6 +496,28 @@ describe("EnvironmentSupervisor", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
+  it.effect("publishes the prepared connection once per established session", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const published = yield* Ref.make(0);
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY).pipe(
+        Effect.provide(harness.dependencies),
+      );
+      yield* SubscriptionRef.changes(supervisor.prepared).pipe(
+        Stream.filter(Option.isSome),
+        Stream.runForEach(() => Ref.update(published, (count) => count + 1)),
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
+
+      yield* supervisor.connect;
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* TestClock.adjust("1 second");
+
+      expect(yield* Ref.get(published)).toBe(1);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("treats an involuntary session close as transient and reconnects", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
