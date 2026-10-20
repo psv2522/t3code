@@ -50,6 +50,7 @@ export interface AuthorizedRemoteEnvironment {
   readonly httpBaseUrl: string;
   readonly socketUrl: string;
   readonly httpAuthorization: PreparedHttpAuthorization;
+  readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
 }
 
 export interface AuthorizedRemoteHttpEnvironment {
@@ -68,6 +69,8 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
       readonly wsBaseUrl: string;
       readonly bearerToken: string;
       readonly connectionMethod: ClientConnectionMethod;
+      /** Fetched from `httpBaseUrl` earlier in the same connect attempt. */
+      readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
     }) => Effect.Effect<AuthorizedRemoteEnvironment, ConnectionAttemptError>;
     readonly authorizeDpop: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
@@ -76,7 +79,11 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
        * for the URL it signs, so a token from the relay also works on the
        * environment's LAN or tailnet address.
        */
-      readonly directEndpoint?: { readonly httpBaseUrl: string; readonly wsBaseUrl: string };
+      readonly directEndpoint?: {
+        readonly httpBaseUrl: string;
+        readonly wsBaseUrl: string;
+        readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
+      };
     }) => Effect.Effect<AuthorizedRemoteEnvironment, ConnectionAttemptError>;
     readonly authorizeDpopHttp: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
@@ -151,17 +158,20 @@ export const make = Effect.gen(function* () {
       readonly expectedEnvironmentId: EnvironmentId;
       readonly httpBaseUrl: string;
       readonly connectionMethod: ClientConnectionMethod;
+      readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
     }) {
       const now = yield* Clock.currentTimeMillis;
       const cachedDescriptor = (yield* Ref.get(bearerDescriptors)).get(input.expectedEnvironmentId);
       const canReuseDescriptor =
         cachedDescriptor?.httpBaseUrl === input.httpBaseUrl &&
         cachedDescriptor.validatedAtEpochMs + BEARER_DESCRIPTOR_CACHE_TTL_MS > now;
-      const descriptor = canReuseDescriptor
-        ? cachedDescriptor.descriptor
-        : yield* fetchDescriptor(input.httpBaseUrl, input.connectionMethod).pipe(
-            Effect.provideService(HttpClient.HttpClient, httpClient),
-          );
+      const descriptor =
+        input.descriptor ??
+        (canReuseDescriptor
+          ? cachedDescriptor.descriptor
+          : yield* fetchDescriptor(input.httpBaseUrl, input.connectionMethod).pipe(
+              Effect.provideService(HttpClient.HttpClient, httpClient),
+            ));
       if (descriptor.environmentId !== input.expectedEnvironmentId) {
         return yield* environmentMismatchError({
           expected: input.expectedEnvironmentId,
@@ -192,6 +202,7 @@ export const make = Effect.gen(function* () {
       readonly wsBaseUrl: string;
       readonly bearerToken: string;
       readonly connectionMethod: ClientConnectionMethod;
+      readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
     }) {
       const descriptor = yield* verifyDirectEndpoint(input);
       const socketUrl = yield* resolveRemoteWebSocketConnectionUrl({
@@ -213,6 +224,7 @@ export const make = Effect.gen(function* () {
           _tag: "Bearer" as const,
           token: input.bearerToken,
         },
+        descriptor,
       };
     },
   );
@@ -551,12 +563,16 @@ export const make = Effect.gen(function* () {
     input: Parameters<RemoteEnvironmentAuthorization["Service"]["authorizeDpop"]>[0],
   ) {
     const endpoint = input.directEndpoint;
+    const descriptor =
+      endpoint === undefined
+        ? undefined
+        : yield* verifyDirectEndpoint({
+            expectedEnvironmentId: input.expectedEnvironmentId,
+            httpBaseUrl: endpoint.httpBaseUrl,
+            connectionMethod: "direct",
+            descriptor: endpoint.descriptor,
+          });
     if (endpoint !== undefined) {
-      yield* verifyDirectEndpoint({
-        expectedEnvironmentId: input.expectedEnvironmentId,
-        httpBaseUrl: endpoint.httpBaseUrl,
-        connectionMethod: "direct",
-      });
       // The cloud sign-in can still be loading on a cold start. The persisted
       // token already authorizes the verified direct address without it.
       if (Option.isNone(yield* cloudSession.identity)) {
@@ -564,13 +580,14 @@ export const make = Effect.gen(function* () {
           Effect.result,
         );
         if (Result.isSuccess(direct) && Option.isSome(direct.success)) {
-          return direct.success.value;
+          return { ...direct.success.value, descriptor };
         }
       }
     }
     const authorized = (token: TokenStore.RemoteDpopAccessToken, socketUrl: string) => ({
       ...httpAuthorization(token, endpoint?.httpBaseUrl),
       socketUrl,
+      descriptor,
     });
     let selected = yield* getDpopToken(input);
     if (selected.fromCache) {

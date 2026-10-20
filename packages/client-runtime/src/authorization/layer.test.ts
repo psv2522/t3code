@@ -1,4 +1,8 @@
-import { AuthStandardClientScopes, EnvironmentId } from "@t3tools/contracts";
+import {
+  AuthStandardClientScopes,
+  EnvironmentId,
+  type ExecutionEnvironmentDescriptor,
+} from "@t3tools/contracts";
 import { type RelayEnvironmentConnectResponse } from "@t3tools/contracts/relay";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -22,7 +26,7 @@ const ENDPOINT = {
   wsBaseUrl: "wss://environment.example.test",
   providerKind: "cloudflare_tunnel" as const,
 };
-const DESCRIPTOR = {
+const DESCRIPTOR: ExecutionEnvironmentDescriptor = {
   environmentId: ENVIRONMENT_ID,
   label: "Remote environment",
   platform: {
@@ -257,6 +261,29 @@ describe("RemoteEnvironmentAuthorization", () => {
       expect(
         harness.fetch.calls.filter(([url]) => String(url).endsWith("/api/auth/websocket-ticket")),
       ).toHaveLength(2);
+    }),
+  );
+
+  it.effect("skips the descriptor fetch when the connect attempt already checked the route", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ responses: [websocketTicket("ticket")] });
+
+      const authorized = yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        return yield* remote.authorizeBearer({
+          expectedEnvironmentId: ENVIRONMENT_ID,
+          httpBaseUrl: ENDPOINT.httpBaseUrl,
+          wsBaseUrl: ENDPOINT.wsBaseUrl,
+          bearerToken: "bearer-token",
+          connectionMethod: "direct",
+          descriptor: DESCRIPTOR,
+        });
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(authorized.descriptor).toEqual(DESCRIPTOR);
+      expect(
+        harness.fetch.calls.filter(([url]) => String(url).endsWith("/.well-known/t3/environment")),
+      ).toHaveLength(0);
     }),
   );
 

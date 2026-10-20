@@ -1,3 +1,4 @@
+import type { ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -141,25 +142,35 @@ export const make = Effect.gen(function* () {
   const sessions = yield* RpcSession.RpcSessionFactory;
   const httpClient = yield* HttpClient.HttpClient;
 
-  const checkRoute = (entry: ConnectionCatalogEntry, route: ConnectionRoute) => {
+  // Resolves to the route's descriptor, null when it is silent, or undefined
+  // when it has no address to check.
+  const describeRoute = (
+    entry: ConnectionCatalogEntry,
+    route: ConnectionRoute,
+  ): Effect.Effect<ExecutionEnvironmentDescriptor | null | undefined> => {
     const httpBaseUrl = routeHttpBaseUrl(route);
-    if (httpBaseUrl === null) return Effect.succeed<RouteCheck>("unchecked");
+    if (httpBaseUrl === null) return Effect.succeed(undefined);
     // The descriptor is public, so this sends no credential to whatever
     // answers at a saved LAN address on a different network.
     return fetchRemoteEnvironmentDescriptor({
       httpBaseUrl,
       timeoutMs: routeCheckTimeoutMs(route),
     }).pipe(
-      Effect.map((descriptor): RouteCheck =>
-        descriptor.environmentId === entry.target.environmentId ? "answered" : "silent",
+      Effect.map((descriptor) =>
+        descriptor.environmentId === entry.target.environmentId ? descriptor : null,
       ),
-      Effect.orElseSucceed((): RouteCheck => "silent"),
+      Effect.orElseSucceed(() => null),
       Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.withSpan("ConnectionDriver.checkRoute", {
         attributes: { "connection.target.kind": route.target._tag },
       }),
     );
   };
+  const routeCheck = (descriptor: ExecutionEnvironmentDescriptor | null | undefined): RouteCheck =>
+    descriptor === undefined ? "unchecked" : descriptor === null ? "silent" : "answered";
+
+  const checkRoute = (entry: ConnectionCatalogEntry, route: ConnectionRoute) =>
+    describeRoute(entry, route).pipe(Effect.map(routeCheck));
 
   const connect = Effect.fn("ConnectionDriver.connect")(function* (
     entry: ConnectionCatalogEntry,
@@ -172,11 +183,18 @@ export const make = Effect.gen(function* () {
       "connection.route.count": connectionRoutes(entry).length,
     });
     yield* reportProgress({ stage: "preparing" });
+    const checked = new Map<ConnectionRoute, ExecutionEnvironmentDescriptor>();
     return yield* connectOverRoutes(
       entry,
-      (route) => checkRoute(entry, route),
+      (route) =>
+        describeRoute(entry, route).pipe(
+          Effect.tap((descriptor) =>
+            Effect.sync(() => descriptor && checked.set(route, descriptor)),
+          ),
+          Effect.map(routeCheck),
+        ),
       Effect.fnUntraced(function* (route) {
-        const prepared = yield* resolver.prepare(routeEntry(entry, route));
+        const prepared = yield* resolver.prepare(routeEntry(entry, route), checked.get(route));
         yield* reportProgress({ stage: "opening", prepared });
         const session = yield* sessions.connect(prepared);
         yield* reportProgress({ stage: "synchronizing", prepared });
@@ -188,12 +206,12 @@ export const make = Effect.gen(function* () {
 
   const preflight = (entry: ConnectionCatalogEntry, route: ConnectionRoute) =>
     (sendsTokenInClear(connectionRoutes(entry), route)
-      ? Effect.succeed("silent" as const)
-      : checkRoute(entry, route)
+      ? Effect.succeed(null)
+      : describeRoute(entry, route)
     ).pipe(
-      Effect.flatMap((check) =>
-        check === "answered"
-          ? resolver.prepare(routeEntry(entry, route)).pipe(
+      Effect.flatMap((descriptor) =>
+        descriptor
+          ? resolver.prepare(routeEntry(entry, route), descriptor).pipe(
               Effect.as(true),
               Effect.orElseSucceed(() => false),
             )

@@ -14,6 +14,7 @@ import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import {
   BearerConnectionCredential,
+  BearerConnectionProfile,
   type ConnectionCatalogEntry,
   SshConnectionProfile,
   type ConnectionCredential,
@@ -21,6 +22,7 @@ import {
 } from "./catalog.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import {
+  BearerConnectionTarget,
   ConnectionTransientError,
   PrimaryConnectionTarget,
   SshConnectionTarget,
@@ -344,5 +346,48 @@ describe("ConnectionResolver", () => {
         }
         expect(yield* permissions.get(entry)).toBe(scenario === "changed" ? "off" : "read-write");
       }),
+  );
+
+  it.effect("checks compatibility against the descriptor the route check already fetched", () =>
+    Effect.gen(function* () {
+      const target = new BearerConnectionTarget({
+        environmentId: ENVIRONMENT_ID,
+        label: "Saved",
+        connectionId: "saved-1",
+      });
+      const profile = new BearerConnectionProfile({
+        connectionId: "saved-1",
+        environmentId: ENVIRONMENT_ID,
+        label: "Saved",
+        httpBaseUrl: ENDPOINT.httpBaseUrl,
+        wsBaseUrl: ENDPOINT.wsBaseUrl,
+      });
+      const layerBroker = yield* makeDependencies({
+        credentials: [["saved-1", new BearerConnectionCredential({ token: "secret-bearer" })]],
+        authorizeBearer: (input) =>
+          Effect.succeed({
+            environmentId: input.expectedEnvironmentId,
+            label: "Saved",
+            httpBaseUrl: input.httpBaseUrl,
+            socketUrl: "wss://environment.example.test/ws?wsTicket=ticket",
+            httpAuthorization: { _tag: "Bearer" as const, token: input.bearerToken },
+            descriptor: input.descriptor,
+          }),
+      });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
+
+      const error = yield* Effect.flip(
+        broker.prepare(catalogEntry(target, Option.some(profile)), {
+          environmentId: ENVIRONMENT_ID,
+          label: "Checked environment",
+          platform: { os: "linux", arch: "x64" },
+          serverVersion: "0.0.0-test",
+          orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION + 1,
+          capabilities: { repositoryIdentity: true },
+        }),
+      );
+
+      expect(error).toMatchObject({ reason: "unsupported" });
+    }),
   );
 });
