@@ -1,4 +1,6 @@
 import {
+  expandWorkspaceSlashCommands,
+  mapServerConfigEventProviders,
   type ServerConfig,
   type ServerConfigStreamEvent,
   WsSubscribeServerConfigRpc,
@@ -169,6 +171,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
     ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
     ...(options.usageLimitsCommand === true ? { usageLimitsCommand: true } : {}),
+    compactWorkspaceSlashCommands: true,
   };
 
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
@@ -247,9 +250,11 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       reason: "remote-unavailable",
       detail: `${connection.label} config subscription ended.`,
     });
-    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig](
-      serverConfigInput,
-    ).pipe(
+    const openServerConfig = (input: ServerConfigSubscriptionInput) =>
+      protocolClient[WS_METHODS.subscribeServerConfig](input).pipe(
+        Stream.map((event) => mapServerConfigEventProviders(event, expandWorkspaceSlashCommands)),
+      );
+    const serverConfigSource = openServerConfig(serverConfigInput).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           const buffered = yield* Ref.modify(serverConfigState, (current) => {
@@ -381,16 +386,18 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           }),
       ),
     );
-    const subscribeServerConfig = (input: ServerConfigSubscriptionInput) =>
-      Stream.unwrap(
+    const subscribeServerConfig = (input: ServerConfigSubscriptionInput) => {
+      const compactInput = { ...input, compactWorkspaceSlashCommands: true };
+      return Stream.unwrap(
         validatedInitialConfig.pipe(
           Effect.as(
-            Equal.equals(input, serverConfigInput)
+            Equal.equals(compactInput, serverConfigInput)
               ? serverConfigEvents
-              : protocolClient[WS_METHODS.subscribeServerConfig](input),
+              : openServerConfig(compactInput),
           ),
         ),
       );
+    };
     const probe = initialConfig.pipe(
       Effect.flatMap((config) =>
         (config.environment.capabilities.connectionProbe === true

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import {
+  compactWorkspaceSlashCommands,
+  expandWorkspaceSlashCommands,
   OtlpEndpointCheckInput,
   resolveEnvironmentMachineKind,
   ServerObservability,
@@ -13,6 +15,7 @@ import { ServerSettings } from "./settings.ts";
 
 const decodeServerProvider = Schema.decodeUnknownSync(ServerProvider);
 const decodeServerProviders = Schema.decodeUnknownSync(ServerProviders);
+const encodeServerProviders = Schema.encodeSync(ServerProviders);
 
 const baseProviderSnapshot = {
   instanceId: "codex",
@@ -38,6 +41,36 @@ describe("ServerProvider", () => {
       );
       expect(decodeServerProvider(wire)).toEqual(decoded);
     }
+  });
+});
+
+describe("workspace slash command compaction", () => {
+  it("sends commands shared with the provider once and restores them on receipt", () => {
+    const review = { name: "review", description: "Review changes" };
+    const workspace = (cwd: string, slashCommands: ReadonlyArray<{ name: string }>) => ({
+      cwd,
+      checkedAt: "2026-04-10T00:00:00.000Z",
+      slashCommands,
+      skills: [],
+    });
+    const provider = decodeServerProvider({
+      ...baseProviderSnapshot,
+      slashCommands: [review],
+      workspaceSnapshots: [
+        workspace("/repo/shared", [review]),
+        workspace("/repo/custom", [review, { name: "deploy" }]),
+      ],
+    });
+
+    const wire = JSON.parse(
+      JSON.stringify(encodeServerProviders(compactWorkspaceSlashCommands([provider]))),
+    );
+
+    expect(wire[0].workspaceSnapshots).toMatchObject([
+      { cwd: "/repo/shared", slashCommands: [], slashCommandsInherited: true },
+      { cwd: "/repo/custom", slashCommands: [review, { name: "deploy" }] },
+    ]);
+    expect(expandWorkspaceSlashCommands(decodeServerProviders(wire))).toEqual([provider]);
   });
 });
 

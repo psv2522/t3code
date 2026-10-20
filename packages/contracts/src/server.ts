@@ -133,6 +133,8 @@ export const ServerProviderWorkspaceSnapshot = Schema.Struct({
   checkedAt: IsoDateTime,
   slashCommands: Schema.Array(ServerProviderSlashCommand),
   slashCommandsPending: Schema.optional(Schema.Boolean),
+  /** Sent with empty `slashCommands`: they equal the provider's own list. */
+  slashCommandsInherited: Schema.optional(Schema.Boolean),
   skills: Schema.Array(ServerProviderSkill),
   optionDescriptors: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
 });
@@ -785,6 +787,55 @@ export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamUsageLimitSourcesUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
+
+export function compactWorkspaceSlashCommands(
+  providers: ReadonlyArray<ServerProvider>,
+): ReadonlyArray<ServerProvider> {
+  return providers.map((provider) => {
+    if (!provider.workspaceSnapshots?.length) return provider;
+    const shared = JSON.stringify(provider.slashCommands);
+    return {
+      ...provider,
+      workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) =>
+        JSON.stringify(snapshot.slashCommands) === shared
+          ? { ...snapshot, slashCommands: [], slashCommandsInherited: true }
+          : snapshot,
+      ),
+    };
+  });
+}
+
+export function expandWorkspaceSlashCommands(
+  providers: ReadonlyArray<ServerProvider>,
+): ReadonlyArray<ServerProvider> {
+  return providers.map((provider) =>
+    provider.workspaceSnapshots?.some((snapshot) => snapshot.slashCommandsInherited)
+      ? {
+          ...provider,
+          workspaceSnapshots: provider.workspaceSnapshots.map(
+            ({ slashCommandsInherited, ...snapshot }) =>
+              slashCommandsInherited
+                ? { ...snapshot, slashCommands: provider.slashCommands }
+                : snapshot,
+          ),
+        }
+      : provider,
+  );
+}
+
+export function mapServerConfigEventProviders(
+  event: ServerConfigStreamEvent,
+  map: (providers: ReadonlyArray<ServerProvider>) => ReadonlyArray<ServerProvider>,
+): ServerConfigStreamEvent {
+  switch (event.type) {
+    case "snapshot":
+      return { ...event, config: { ...event.config, providers: map(event.config.providers) } };
+    case "providerStatuses":
+      return { ...event, payload: { ...event.payload, providers: map(event.payload.providers) } };
+    default:
+      return event;
+  }
+}
 
 export const ServerSelfUpdateOutcome = Schema.Struct({
   id: TrimmedNonEmptyString,

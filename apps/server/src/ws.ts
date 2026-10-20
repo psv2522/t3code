@@ -24,6 +24,8 @@ import { subscribeCodexAuthCallback } from "./provider/CodexAuthCallback.ts";
 import {
   AcpRegistryOperationError,
   CommandId,
+  compactWorkspaceSlashCommands,
+  mapServerConfigEventProviders,
   authScopeResponse,
   AuthAccessStreamError,
   type AuthAccessStreamEvent,
@@ -3104,10 +3106,17 @@ export const layerWsRpc = (
                 ),
               );
 
-              return Stream.concat(
+              const events = Stream.concat(
                 rpcInitialItems([{ version: 1 as const, type: "snapshot" as const, config }]),
                 withLateEditorConfig(config, liveUpdates, externalLauncher),
               );
+              return input.compactWorkspaceSlashCommands === true
+                ? events.pipe(
+                    Stream.map((event) =>
+                      mapServerConfigEventProviders(event, compactWorkspaceSlashCommands),
+                    ),
+                  )
+                : events;
             }),
           ),
         [WS_METHODS.subscribeServerLifecycle]: (_input) =>

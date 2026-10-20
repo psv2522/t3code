@@ -1780,6 +1780,11 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
      * client would send it to the provider as an ordinary prompt.
      */
     usageLimitsCommand: Schema.optional(Schema.Boolean),
+    /**
+     * Whether this client expands `slashCommandsInherited` workspace snapshots.
+     * An older client would read their empty `slashCommands` as the full list.
+     */
+    compactWorkspaceSlashCommands: Schema.optional(Schema.Boolean),
   }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
