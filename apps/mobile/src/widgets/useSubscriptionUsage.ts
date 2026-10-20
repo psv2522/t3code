@@ -6,7 +6,11 @@ import { isAppActive, subscribeAppState } from "../lib/appState";
 import { appAtomRegistry } from "../state/atom-registry";
 import { environmentPresentations } from "../state/presentation";
 import { serverEnvironment } from "../state/server";
-import { createWidgetRefresher, WIDGET_REFRESH_INTERVAL } from "./subscriptionUsageSnapshot";
+import {
+  createWidgetRefresher,
+  usageLimitsCheckedAt,
+  WIDGET_REFRESH_INTERVAL,
+} from "./subscriptionUsageSnapshot";
 
 /**
  * App-lifetime worker that keeps provider quotas fresh for the usage widget:
@@ -24,10 +28,16 @@ export function installSubscriptionUsageRefresh(): () => void {
   );
   const update = () => {
     if (!isAppActive() || !appAtomRegistry.get(environmentCatalog.catalogValueAtom).isReady) return;
+    const now = Date.now();
+    const providers = appAtomRegistry.get(environmentPresentations.providersByEnvironmentAtom);
     const connected = [...appAtomRegistry.get(environmentPresentations.presentationsAtom)]
-      .filter(([, presentation]) => presentation.connection.phase === "connected")
+      .filter(
+        ([id, presentation]) =>
+          presentation.connection.phase === "connected" &&
+          now - usageLimitsCheckedAt(providers.get(id) ?? []) >= WIDGET_REFRESH_INTERVAL,
+      )
       .map(([id]) => id);
-    void refresh(connected, Date.now());
+    void refresh(connected, now);
   };
 
   const unsubscribeCatalog = appAtomRegistry.subscribe(environmentCatalog.catalogValueAtom, update);
