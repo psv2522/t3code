@@ -800,15 +800,20 @@ export class PreviewAutomationTimeoutError extends Schema.TaggedError<PreviewAut
     ...PreviewAutomationOptionalRemoteDiagnosticFields,
     pendingStages: Schema.optional(PreviewAutomationTimeoutDetail.fields.pendingStages),
     reason: Schema.optional(Schema.String),
+    noMatch: Schema.optional(Schema.Boolean),
   },
 ) {
   override get message(): string {
-    const summary = `Preview automation ${this.operation} timed out after ${this.timeoutMs}ms.`;
     const stages = this.pendingStages?.length
       ? ` Waiting for: ${this.pendingStages.join(", ")}.`
       : "";
-    const reason = this.reason === undefined ? "" : ` ${this.reason}`;
-    return `${summary}${stages}${reason}`;
+    const summary = `Preview automation ${this.operation} timed out after ${this.timeoutMs}ms.${stages}`;
+    if (this.reason !== undefined) return `${summary} ${this.reason}`;
+    if (this.noMatch)
+      return `${summary} No element matched its locator. Take a fresh snapshot and use a ref from it.`;
+    if (this.operation === "evaluate")
+      return `${summary} Return sooner: start slow work without awaiting it, then check on it with preview_wait_for or another preview_evaluate.`;
+    return summary;
   }
 }
 
@@ -875,11 +880,14 @@ export class PreviewAutomationInvalidSelectorError extends Schema.TaggedError<Pr
     selectorKind: Schema.optional(Schema.Literals(["locator", "selector"])),
     selectorLength: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
     staleRef: Schema.optional(Schema.Boolean),
+    matchCount: Schema.optional(Schema.Int.check(Schema.isGreaterThan(1))),
   },
 ) {
   override get message(): string {
     if (this.staleRef)
       return "This element ref is stale. Navigation, dialogs, and new snapshots replace refs; take a fresh snapshot and use its refs.";
+    if (this.matchCount !== undefined)
+      return `Preview automation ${this.operation}'s ${this.selectorKind ?? "selector"} matched ${this.matchCount} elements and must match one. Take a snapshot and pass locator=aria-ref=<ref> for the element you want.`;
     if (this.selectorKind !== undefined && this.selectorLength !== undefined) {
       const guidance =
         this.selectorKind === "locator"
