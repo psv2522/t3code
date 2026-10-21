@@ -4,6 +4,8 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { isElectron } from "../env";
+import { ConnectingState } from "../components/ConnectingState";
+import { resolveConnectingView } from "../components/ConnectingState.logic";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
 import { Button } from "../components/ui/button";
@@ -33,6 +35,7 @@ function ChatIndexRouteView() {
 }
 
 function IndexDraftLanding() {
+  const { environments } = useEnvironments();
   const projects = useProjects();
   const threads = useThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
@@ -70,19 +73,29 @@ function IndexDraftLanding() {
   }, [attempt, handleNewThread, mostRecentProject]);
 
   if (mostRecentProject !== null) {
-    return startState.failed ? (
-      <DraftStartError
-        onRetry={() => {
-          setStartState((state) => ({
-            failed: false,
-            retryRequest: state.retryRequest + 1,
-          }));
-        }}
-      />
-    ) : null;
+    if (startState.failed) {
+      return (
+        <DraftStartError
+          onRetry={() => {
+            setStartState((state) => ({
+              failed: false,
+              retryRequest: state.retryRequest + 1,
+            }));
+          }}
+        />
+      );
+    }
+    const view = resolveConnectingView(
+      environments.filter(({ environmentId }) => environmentId === mostRecentProject.environmentId),
+    );
+    return view.kind === "ready" ? null : <ConnectingState view={view} />;
   }
   // A pending environment cannot prove the workspace is empty.
-  return bootstrapped ? <NoProjectsHero /> : null;
+  return bootstrapped ? (
+    <NoProjectsHero />
+  ) : (
+    <ConnectingState view={resolveConnectingView(environments)} />
+  );
 }
 
 function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {
