@@ -7,7 +7,6 @@ OUT_ROOT="${P2CODE_OUT:-$HOME/.p2code}"
 APPS_DIR="${P2CODE_APPS_DIR:-/Applications}"
 INSTALLED_APP_NAME="${P2CODE_APP_NAME:-T3 Code (Nightly)}"
 SIGN_IDENTITY="${P2CODE_SIGN_IDENTITY:-p2code Local Signing}"
-SEA_NODE_VERSION="26.8.2"
 TARGET_PLATFORM="mac"
 TARGET_ARCH="arm64"
 DESKTOP_TARGET="dir"
@@ -119,9 +118,7 @@ confirm() {
 }
 
 sea_node_version() {
-  local version
-  version="$(sed -n 's/^const SEA_NODE_VERSION = "\([^"]*\)";.*/\1/p' "$REPO/apps/server/vite.config.ts" | head -n 1)"
-  printf '%s' "${version:-$SEA_NODE_VERSION}"
+  node -p 'require(process.argv[1]).engines.node' "$REPO/package.json"
 }
 
 pointer_compressed_node() {
