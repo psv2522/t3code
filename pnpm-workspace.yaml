@@ -255,6 +255,11 @@ overrides:
   # Move this with @react-navigation/native: an older core than it requires crashes
   # every native stack at launch.
   "@react-navigation/core": 7.24.0
+  # Two copies of prosemirror-model make editor operations throw and silently break
+  # composer keys. Move these with @tiptap/pm.
+  prosemirror-model: 1.25.12
+  prosemirror-transform: 1.12.2
+  prosemirror-view: 1.42.6
   # The dbus-next patch drops usocket from the package, but pnpm resolves from the
   # registry manifest, so the edge has to be cut here as well.
   "dbus-next>usocket": "-"
@@ -387,7 +392,7 @@ patchedDependencies:
   # skip, the fingerprint silently drops every Expo native module and OTAs reach stale binaries.
   "@expo/fingerprint@0.21.5": patches/@expo__fingerprint@0.21.5.patch
   # Observe the owned host exit independently of descendants retaining its stdio.
-  "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
+  "@muse-code/sdk@1.4.10": patches/@muse-code__sdk@1.4.10.patch
   app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
   # Worklets Bundle Mode: rebuilds generated .worklets files and forwards HMR updates to worklet runtimes.
   metro@0.87.1: patches/metro@0.87.1.patch
