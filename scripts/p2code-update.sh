@@ -6,6 +6,8 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_ROOT="${P2CODE_OUT:-$HOME/.p2code}"
 UPSTREAM_URL="git@github.com:pingdotgg/t3code.git"
+UPSTREAM_REMOTE="origin"
+PUSH_REMOTE="fork"
 WORK_BRANCH="p2code/custom"
 STATE_FILE="$OUT_ROOT/installed-head"
 BUILD_SCRIPT="$REPO/scripts/p2code.sh"
@@ -20,7 +22,7 @@ Sync the fork with pingdotgg/t3code main, rebase local changes, push, then build
 
   --sync-only    Sync, rebase, push and check; do not build or install
   --no-install   Sync, push, check and build; do not install
-  --no-push      Do not push main and $WORK_BRANCH to origin
+  --no-push      Do not push main and $WORK_BRANCH to $PUSH_REMOTE
   --force        Rebuild even when nothing changed since the last install
   --check        Fetch upstream and print JSON saying whether an update is pending; changes nothing
   -v, --verbose  Show full command output instead of one line per step
@@ -56,10 +58,10 @@ if [[ "$CHECK" -eq 1 ]]; then
   cd "$REPO"
   git show-ref --verify --quiet "refs/heads/$WORK_BRANCH" || die "Branch $WORK_BRANCH does not exist."
   git show-ref --verify --quiet refs/heads/main || die "Local main branch does not exist."
-  if ! git remote get-url upstream >/dev/null 2>&1; then
-    git remote add upstream "$UPSTREAM_URL"
+  if ! git remote get-url "$UPSTREAM_REMOTE" >/dev/null 2>&1; then
+    git remote add "$UPSTREAM_REMOTE" "$UPSTREAM_URL"
   fi
-  git fetch upstream main --quiet || die "Could not reach $UPSTREAM_URL."
+  git fetch "$UPSTREAM_REMOTE" main --quiet || die "Could not reach $UPSTREAM_URL."
   check_installed=""
   if [[ -f "$STATE_FILE" ]]; then
     check_installed="$(cat "$STATE_FILE")"
@@ -69,7 +71,7 @@ if [[ "$CHECK" -eq 1 ]]; then
   check_dirty=false
   git diff --quiet && git diff --cached --quiet || check_dirty=true
   printf '{"upstreamCommits":%s,"localChanges":%s,"dirty":%s}\n' \
-    "$(git rev-list --count main..upstream/main)" "$check_local" "$check_dirty"
+    "$(git rev-list --count main..$UPSTREAM_REMOTE/main)" "$check_local" "$check_dirty"
   exit 0
 fi
 
@@ -91,20 +93,20 @@ git diff --quiet && git diff --cached --quiet ||
 git show-ref --verify --quiet "refs/heads/$WORK_BRANCH" || die "Branch $WORK_BRANCH does not exist."
 git show-ref --verify --quiet refs/heads/main || die "Local main branch does not exist."
 
-if ! git remote get-url upstream >/dev/null 2>&1; then
-  git remote add upstream "$UPSTREAM_URL"
+if ! git remote get-url "$UPSTREAM_REMOTE" >/dev/null 2>&1; then
+  git remote add "$UPSTREAM_REMOTE" "$UPSTREAM_URL"
 fi
 
 log "Syncing with upstream"
-step "Fetching upstream" git fetch upstream --tags --quiet
+step "Fetching upstream" git fetch "$UPSTREAM_REMOTE" --tags --quiet
 
 if [[ "$(git branch --show-current)" != "$WORK_BRANCH" ]]; then
   git switch --quiet "$WORK_BRANCH"
 fi
 
 old_main="$(git rev-parse main)"
-git fetch upstream main:main --quiet ||
-  die "Local main cannot fast-forward to upstream/main (it has its own commits). Fix it by hand in $REPO."
+git fetch "$UPSTREAM_REMOTE" main:main --quiet ||
+  die "Local main cannot fast-forward to $UPSTREAM_REMOTE/main (it has its own commits). Fix it by hand in $REPO."
 new_main="$(git rev-parse main)"
 new_commits="$(git rev-list --count "$old_main..$new_main")"
 printf '  main: %s new upstream commit(s), now at %s\n' "$new_commits" "$(git log --oneline -1 main)"
@@ -178,11 +180,11 @@ step "Checking local changes against the new base" bash -c 'cd packages/provider
 git diff --quiet || die "Dependency install or checks modified tracked files. Inspect with: git -C $REPO status"
 
 push_all() {
-  git push --quiet origin main && git push --quiet --force-with-lease --set-upstream origin "$WORK_BRANCH"
+  git push --quiet "$PUSH_REMOTE" main && git push --quiet --force-with-lease --set-upstream "$PUSH_REMOTE" "$WORK_BRANCH"
 }
 
 if [[ "$PUSH" -eq 1 ]]; then
-  step "Pushing main and $WORK_BRANCH to origin" push_all
+  step "Pushing main and $WORK_BRANCH to $PUSH_REMOTE" push_all
 fi
 
 if [[ "$SYNC_ONLY" -eq 1 ]]; then

@@ -211,19 +211,20 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
 
-## p2code: this private fork
+## p2code: the owner's build
 
-This checkout is `psv2522/p2code`, a private copy of `pingdotgg/t3code` (not a GitHub fork). The owner builds it themselves and runs it as their own T3 Code: custom server as the background service plus a custom desktop app. Changes made here are for the owner's own use.
+This checkout carries `p2code/custom` on the public GitHub fork `psv2522/t3code` of `pingdotgg/t3code`. The owner builds it themselves and runs it as their own T3 Code: custom server as the background service plus a custom desktop app. Changes made here are for the owner's own use.
 
 ### Branches and remotes
 
-- `origin` is `git@github.com:psv2522/p2code.git`; `upstream` is `git@github.com:pingdotgg/t3code.git`.
-- Local `main` only mirrors `upstream/main` (fast-forward only). Never commit to it.
+- `origin` is `git@github.com:pingdotgg/t3code.git`; `fork` is `git@github.com:psv2522/t3code.git`.
+- Local `main` only mirrors `origin/main` (fast-forward only). Never commit to it.
+- Branches for upstream PRs start from `main`, are pushed to `fork`, and never contain `p2code/custom` commits.
 - All custom work lives on `p2code/custom`, always rebased onto `main`. It is pushed with `--force-with-lease`.
 - Carried on top of upstream: the lazy Cursor SDK load (upstream PR #19235), lazy provider drivers, and the p2code scripts. Drop a carried commit once upstream ships the equivalent.
 - Dependency bumps live in one `build(deps): bump carried dependencies` commit at the top of the stack. Fold new bumps into it (`git commit --fixup` plus `git rebase -i --autosquash main`) instead of adding commits, so a sync hits at most one lockfile conflict.
 - GitHub Actions are disabled on the fork. Do not re-enable them.
-- Keep custom changes small and local so rebasing stays cheap. The sync enables `rerere` and continues past a stop only when recorded resolutions cover every conflict or `pnpm-lock.yaml` is the only one, which it regenerates from upstream's copy; it prints each auto-resolution. Any other conflict aborts the sync and lists the files. Resolve by hand with `cd ~/Personal/Coding/p2code && git rebase main`; rerere records that resolution for the next sync.
+- Keep custom changes small and local so rebasing stays cheap. The sync enables `rerere` and continues past a stop only when recorded resolutions cover every conflict or `pnpm-lock.yaml` is the only one, which it regenerates from upstream's copy; it prints each auto-resolution. Any other conflict aborts the sync and lists the files. Resolve by hand with `cd ~/Personal/Coding/t3code && git rebase main`; rerere records that resolution for the next sync.
 
 ### Commands
 
@@ -239,7 +240,7 @@ Files:
 
 ### What `p2code update` does
 
-1. Requires a clean tree and the `p2code/custom` and `main` branches. Adds the `upstream` remote if missing.
+1. Requires a clean tree and the `p2code/custom` and `main` branches. Adds the `origin` remote if missing.
 2. Fetches upstream, fast-forwards `main`, rebases `p2code/custom` onto it. Warns if files under `apps/server/src/persistence/Migrations` changed since the installed build.
 3. `vp i`, then runs `provider-cursor` tests and typecheck. A failure stops the run.
 4. Pushes `main` and `p2code/custom` (skipped with `--no-push`).
@@ -250,7 +251,7 @@ Files:
 
 In the desktop app the sidebar update button, Settings → About "Check for Updates" and the native "Check for Updates…" menu item run the p2code check (`apps/desktop/src/ipc/methods/p2code.ts`, `apps/web/src/components/sidebar/p2codeUpdate.ts`, exposed as `desktopBridge.p2code`) whenever `~/.p2code/repo` exists; every `p2code build` writes it. Without it the menu item shows the stock "Updates unavailable" dialog.
 
-- Click runs `scripts/p2code-update.sh --check`: fetches `upstream/main` and prints JSON (`upstreamCommits`, `localChanges`, `dirty`). `localChanges` means `p2code/custom` differs from `~/.p2code/installed-head`. The check changes nothing but remote-tracking refs.
+- Click runs `scripts/p2code-update.sh --check`: fetches `origin/main` and prints JSON (`upstreamCommits`, `localChanges`, `dirty`). `localChanges` means `p2code/custom` differs from `~/.p2code/installed-head`. The check changes nothing but remote-tracking refs.
 - Nothing pending: an "up to date" toast and nothing else. Uncommitted changes in the repo: a toast asking to commit first.
 - Something pending: a confirm dialog, then `~/.p2code/run/update.command` opens in Terminal and runs `p2code-update.sh`, which installs without a prompt (the restart and logs live there). The app never builds or installs by itself, because install restarts the server and quits the app.
 - `p2code-update.sh` keeps a pid lock (`~/.p2code/update.lock`), so a second click cannot start a parallel update.
