@@ -93,6 +93,22 @@ describe("threadRoutes", () => {
     ).toBe("missing");
   });
 
+  it("waits for a restored draft's project and environment before showing its composer", () => {
+    const restoredDraft = {
+      bootstrapComplete: false,
+      serverThreadExists: false,
+      serverThreadDeleted: false,
+      unlistedThreadDetail: EMPTY_ENVIRONMENT_THREAD_STATE,
+      draftThreadExists: true,
+      draftContextReady: false,
+    };
+
+    expect(resolveThreadRouteRenderState(restoredDraft)).toBe("loading");
+    expect(resolveThreadRouteRenderState({ ...restoredDraft, draftContextReady: true })).toBe(
+      "ready",
+    );
+  });
+
   it("opens an unlisted server thread once its detail arrives, without waiting for the shell", () => {
     const route = {
       bootstrapComplete: isThreadRouteSnapshotAuthoritative("live"),

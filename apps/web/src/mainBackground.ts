@@ -134,8 +134,17 @@ async function renderBackground(source: Blob): Promise<RenderedBackground> {
     ditherPixels(image.data, columns);
     context.putImageData(image, 0, 0);
     const blob = await canvasToBlob(canvas, "image/png");
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+    } catch (error) {
+      URL.revokeObjectURL(url);
+      throw error;
+    }
     return {
-      url: URL.createObjectURL(blob),
+      url,
       width: columns * CELL_SIZE,
       height: rows * CELL_SIZE,
     };
@@ -214,10 +223,9 @@ export function setMainBackgroundOpacity(opacity: number) {
   publish({ opacity });
 }
 
-export function startMainBackground() {
+export async function startMainBackground() {
   publish({ opacity: readOpacity() });
-  const load = () => void reload().catch(() => replaceRendered(null));
-  load();
+  const load = () => reload().catch(() => replaceRendered(null));
 
   const channel = new BroadcastChannel(CHANNEL_NAME);
   channel.addEventListener("message", load);
@@ -238,6 +246,7 @@ export function startMainBackground() {
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener("resize", onResize);
+  await load();
   return () => {
     clearTimeout(resizeTimer);
     channel.close();

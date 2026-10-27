@@ -7,6 +7,8 @@ import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
+import { ConnectingStateContent } from "./ConnectingState";
+import { resolveConnectingView } from "./ConnectingState.logic";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
 import { SidebarInset } from "./ui/sidebar";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -16,7 +18,8 @@ import {
   useAnyEnvironmentHiding,
   useQuietThreadShell,
 } from "../state/entities";
-import { useEnvironmentShellStatus } from "../state/shell";
+import { useEnvironment } from "../state/environments";
+import { useEnvironmentShellHasSnapshot, useEnvironmentShellStatus } from "../state/shell";
 import { environmentThreadShells, useEnvironmentThread } from "../state/threads";
 import {
   buildThreadRouteParams,
@@ -43,6 +46,8 @@ export function ThreadRouteView({
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
   );
+  const draftEnvironment = useEnvironment(draftSession?.environmentId ?? null);
+  const draftHasSnapshot = useEnvironmentShellHasSnapshot(draftSession?.environmentId ?? null);
   const draftRedirect = useComposerDraftStore((store) =>
     draftId === null ? null : store.getPromotedDraftRedirect(draftId),
   );
@@ -115,7 +120,9 @@ export function ThreadRouteView({
     serverThreadExists: serverThreadShell !== null,
     serverThreadDeleted: serverThreadShell?.deletedAt != null,
     unlistedThreadDetail,
-    draftThreadExists: draftThread !== null,
+    draftThreadExists: draftSession !== null || draftThread !== null,
+    draftContextReady:
+      draftSession === null || (draftHasSnapshot && draftEnvironment?.serverConfig != null),
   });
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
@@ -144,6 +151,13 @@ export function ThreadRouteView({
     ) {
       // A draft whose thread is already live and hidden (mid-promotion): never mount it.
       redirect = <Navigate to="/" replace />;
+    } else if (draftSession && renderState === "loading") {
+      view = (
+        <ConnectingStateContent
+          draft
+          view={resolveConnectingView(draftEnvironment ? [draftEnvironment] : [])}
+        />
+      );
     } else if (draftSession) {
       view = (
         <ChatView
