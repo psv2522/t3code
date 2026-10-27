@@ -1590,11 +1590,6 @@ function ConnectionsSettingsContent({
 
   return (
     <SettingsPageContainer>
-      {desktopBridge ? (
-        <SettingsSection id="this-app" title="This app">
-          <LocalEnvironmentSetting />
-        </SettingsSection>
-      ) : null}
       <SettingsSection
         {...searchableSetting("remote-environments")}
         title="Environments"
