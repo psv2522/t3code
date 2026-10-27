@@ -3431,6 +3431,7 @@ export default function ChatView(props: ChatViewProps) {
                           draftId={draftId}
                           activeProjectRef={activeProjectRef}
                           activeProjectTitle={activeProject?.title ?? null}
+                          isScratchDraft={activeProjectIsScratch}
                         />
                       </div>
                     </div>

@@ -63,12 +63,14 @@ interface DraftHeroHeadlineProps {
   readonly draftId: DraftId | null;
   readonly activeProjectRef: ScopedProjectRef | null;
   readonly activeProjectTitle: string | null;
+  readonly isScratchDraft: boolean;
 }
 
 export function DraftHeroHeadline({
   draftId,
   activeProjectRef,
   activeProjectTitle,
+  isScratchDraft,
 }: DraftHeroHeadlineProps) {
   const projects = useProjects();
   const threads = useThreadShells();
@@ -152,9 +154,6 @@ export function DraftHeroHeadline({
         ) ?? null);
   const scratchTargetEnvironmentId = scratchEnvironmentId(activeProjectRef?.environmentId ?? null);
   const scratchWorkspaceRoot = scratchWorkspaceRootFor(scratchTargetEnvironmentId);
-  const isScratchDraft =
-    activeProject !== null &&
-    isScratchProject(activeProject, scratchWorkspaceRootFor(activeProject.environmentId));
 
   const pickerItems: readonly PickerItem[] = [
     ...menuEntries.map(({ group }) => ({ value: group.projectKey, label: group.displayName })),
@@ -397,11 +396,9 @@ export function DraftHeroHeadline({
           )}
         </h1>
       )}
-      {scratchWorkspaceRoot === null ? null : (
-        <p className="mt-2 flex h-6 w-full items-center justify-center text-sm">
-          {isScratchDraft ? projectSelector : orStartWithoutProject}
-        </p>
-      )}
+      <p className="mt-2 flex h-6 w-full items-center justify-center text-sm">
+        {isScratchDraft ? projectSelector : orStartWithoutProject}
+      </p>
     </div>
   );
 }
