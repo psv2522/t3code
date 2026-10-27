@@ -491,13 +491,12 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   // The unsuffixed executable is valid only for the host platform and architecture.
   const hostPlatform = yield* HostProcess.Platform;
   const hostKey = `${hostPlatform === "win32" ? "win" : hostPlatform}-${yield* HostProcess.Architecture}`;
-  const resolveBuilt = (outDir: string, name: string) =>
-    Effect.gen(function* () {
-      const suffix = input.platform === "win" ? ".exe" : "";
-      const targetPath = path.join(serverDir, outDir, `${name}-${targetKey}${suffix}`);
-      if (yield* fs.exists(targetPath)) return targetPath;
-      return targetKey === hostKey ? path.join(serverDir, outDir, `${name}${suffix}`) : targetPath;
-    });
+  const resolveBuilt = Effect.fn("resolveBuilt")(function* (outDir: string, name: string) {
+    const suffix = input.platform === "win" ? ".exe" : "";
+    const targetPath = path.join(serverDir, outDir, `${name}-${targetKey}${suffix}`);
+    if (yield* fs.exists(targetPath)) return targetPath;
+    return targetKey === hostKey ? path.join(serverDir, outDir, `${name}${suffix}`) : targetPath;
+  });
   const builtExecutable = yield* resolveBuilt("dist-exe", "t3");
   // Windows has no boot service, so the launcher-only executable is a
   // macOS/Linux artifact.

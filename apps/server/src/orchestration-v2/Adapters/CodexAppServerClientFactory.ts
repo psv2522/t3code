@@ -54,7 +54,9 @@ export const layerLazy: Layer.Layer<
       ),
     );
     return CodexAppServerClientFactory.of({
-      open: (input) => factory.pipe(Effect.flatMap((loaded) => loaded.open(input))),
+      open: Effect.fn("CodexAppServerClientFactory.open")((input) =>
+        factory.pipe(Effect.flatMap((loaded) => loaded.open(input))),
+      ),
     });
   }),
 );
