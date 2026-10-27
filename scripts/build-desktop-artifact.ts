@@ -2204,7 +2204,11 @@ export const copyDirectoryPreservingSymlinks = Effect.fn("copyDirectoryPreservin
 );
 
 export const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSelfContained")(
-  function* (input: { readonly asarPath: string; readonly verbose: boolean }) {
+  function* (input: {
+    readonly asarPath: string;
+    readonly verbose: boolean;
+    readonly clientOnly?: boolean;
+  }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
@@ -2231,6 +2235,23 @@ export const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBund
           output: `Refusing to report success: ${candidate} is visible from the probe directory, so bare imports could resolve outside the packaged tree. Remove or rename it, or point TMPDIR somewhere without one.`,
         });
       }
+    }
+
+    if (input.clientOnly) {
+      for (const file of [
+        "apps/desktop/dist-electron/boot.cjs",
+        "apps/desktop/dist-electron/main.cjs",
+        "apps/server/dist/client/index.html",
+      ]) {
+        const entryPoint = path.join(probeApp, file);
+        if (!(yield* fs.exists(entryPoint))) {
+          return yield* new BundleNotSelfContainedError({
+            exitCode: -1,
+            output: `Expected the client entry at ${entryPoint}.`,
+          });
+        }
+      }
+      return;
     }
 
     const entryPoint = path.join(probeApp, "apps/server/dist/bin.mjs");
@@ -3534,7 +3555,11 @@ export class MacPackagedAppMissingError extends Schema.TaggedError<MacPackagedAp
 }
 
 export const validateMacPackagedPayload = Effect.fn("desktopArtifact.validateMacPackagedPayload")(
-  function* (input: { readonly stageDistDir: string; readonly verbose?: boolean }) {
+  function* (input: {
+    readonly stageDistDir: string;
+    readonly verbose?: boolean;
+    readonly clientOnly?: boolean;
+  }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const asarPaths: string[] = [];
@@ -3552,7 +3577,11 @@ export const validateMacPackagedPayload = Effect.fn("desktopArtifact.validateMac
       return yield* new MacPackagedAppMissingError({ stageDistDir: input.stageDistDir });
     }
     for (const asarPath of asarPaths) {
-      yield* verifyPackagedBundleIsSelfContained({ asarPath, verbose: input.verbose ?? false });
+      yield* verifyPackagedBundleIsSelfContained({
+        asarPath,
+        verbose: input.verbose ?? false,
+        clientOnly: input.clientOnly ?? false,
+      });
     }
     yield* Effect.log(
       `[desktop-artifact] Validated macOS payload (${String(asarPaths.length)} app bundle(s)).`,
@@ -4063,7 +4092,11 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
   // x64 builds on arm64 runners; the arm64 check covers the shared JS bundle.
   if (options.platform === "mac" && options.arch === "arm64" && hostPlatform === "darwin") {
-    yield* validateMacPackagedPayload({ stageDistDir, verbose: options.verbose });
+    yield* validateMacPackagedPayload({
+      stageDistDir,
+      verbose: options.verbose,
+      clientOnly: options.clientOnly,
+    });
   }
 
   const stageEntries = yield* fs.readDirectory(stageDistDir);

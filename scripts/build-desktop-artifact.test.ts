@@ -215,14 +215,28 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
 
 const makeMacPayloadFixture = Effect.fn("test.makeMacPayloadFixture")(function* (input: {
   readonly serverEntrySource?: string;
+  readonly clientOnly?: boolean;
+  readonly omitClientFile?: string;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-mac-payload-test-" });
   const sourceDir = path.join(tempDir, "app-source");
-  const serverEntryPath = path.join(sourceDir, "apps/server/dist/bin.mjs");
-  yield* fs.makeDirectory(path.dirname(serverEntryPath), { recursive: true });
-  yield* fs.writeFileString(serverEntryPath, input.serverEntrySource ?? "console.log('server');\n");
+  const files = input.clientOnly
+    ? ([
+        ["apps/desktop/dist-electron/boot.cjs", "require('./main.cjs');"],
+        ["apps/desktop/dist-electron/main.cjs", "console.log('desktop');"],
+        ["apps/server/dist/client/index.html", "<!doctype html>"],
+      ] as const)
+    : ([
+        ["apps/server/dist/bin.mjs", input.serverEntrySource ?? "console.log('server');\n"],
+      ] as const);
+  for (const [file, contents] of files) {
+    if (file === input.omitClientFile) continue;
+    const filePath = path.join(sourceDir, file);
+    yield* fs.makeDirectory(path.dirname(filePath), { recursive: true });
+    yield* fs.writeFileString(filePath, contents);
+  }
 
   const stageDistDir = path.join(tempDir, "dist");
   const resourcesDir = path.join(stageDistDir, "mac-arm64/T3 Code.app/Contents/Resources");
@@ -1326,6 +1340,35 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       Effect.gen(function* () {
         const fixture = yield* makeMacPayloadFixture({});
         yield* validateMacPackagedPayload({ stageDistDir: fixture.stageDistDir });
+      }),
+    ),
+  );
+
+  it.effect("accepts a client-only macOS app with its desktop and web entries", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeMacPayloadFixture({ clientOnly: true });
+        yield* validateMacPackagedPayload({ stageDistDir: fixture.stageDistDir, clientOnly: true });
+      }),
+    ),
+  );
+
+  it.effect("rejects a client-only macOS app missing a desktop or web entry", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        for (const file of [
+          "apps/desktop/dist-electron/boot.cjs",
+          "apps/desktop/dist-electron/main.cjs",
+          "apps/server/dist/client/index.html",
+        ]) {
+          const fixture = yield* makeMacPayloadFixture({ clientOnly: true, omitClientFile: file });
+          const error = yield* validateMacPackagedPayload({
+            stageDistDir: fixture.stageDistDir,
+            clientOnly: true,
+          }).pipe(Effect.flip);
+          assert.instanceOf(error, BundleNotSelfContainedError);
+          assert.include(error.output, file);
+        }
       }),
     ),
   );
