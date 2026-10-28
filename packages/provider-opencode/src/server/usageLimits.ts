@@ -24,15 +24,16 @@ const AuthFile = Schema.Struct({ "opencode-go": Schema.optionalKey(Schema.Unknow
 const ApiAuth = Schema.Struct({ type: Schema.Literal("api"), key: Schema.String });
 const decodeAuthFile = Schema.decodeEffect(Schema.fromJsonString(AuthFile));
 const decodeApiAuth = Schema.decodeUnknownOption(ApiAuth);
-// OpenCode 2's database tags a stored key "key"; auth.json tags it "api".
-const StoredKey = Schema.Struct({
-  type: Schema.Literal("key"),
-  key: Schema.String,
+// OpenCode 2 stores Console keys and OAuth credentials in its database.
+const StoredCredential = Schema.Struct({
+  type: Schema.Literals(["key", "oauth"]),
+  key: Schema.optionalKey(Schema.String),
+  access: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(
     Schema.NullOr(Schema.Struct({ server: Schema.optionalKey(Schema.Unknown) })),
   ),
 });
-const decodeStoredKey = Schema.decodeOption(Schema.fromJsonString(StoredKey));
+const decodeStoredCredential = Schema.decodeOption(Schema.fromJsonString(StoredCredential));
 const UsageWindow = Schema.Struct({
   percent: Schema.Finite,
   resetsAt: Schema.DateTimeUtcFromString,
@@ -43,7 +44,7 @@ const UsageResponse = Schema.Struct({
 
 // Select before decoding so an OAuth or self-hosted connection cannot fall
 // through to another stored account. NULL-active rows predate the selection flag.
-const readConsoleApiKey = (databasePath: string) =>
+const readConsoleCredential = (databasePath: string) =>
   Effect.try(() => {
     const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -57,7 +58,7 @@ const readConsoleApiKey = (databasePath: string) =>
         .get();
       const stored =
         typeof row?.value === "string"
-          ? Option.getOrUndefined(decodeStoredKey(row.value))
+          ? Option.getOrUndefined(decodeStoredCredential(row.value))
           : undefined;
       const server = stored?.metadata?.server;
       if (typeof server === "string") {
@@ -65,7 +66,7 @@ const readConsoleApiKey = (databasePath: string) =>
         if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
           return undefined;
       }
-      return stored?.key.trim();
+      return (stored?.type === "oauth" ? stored.access : stored?.key)?.trim();
     } finally {
       database.close();
     }
@@ -111,7 +112,7 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
     const consoleKey =
       env.OPENCODE_AUTH_CONTENT || databaseFile === ":memory:"
         ? undefined
-        : yield* readConsoleApiKey(path.resolve(dataHome, "opencode", databaseFile));
+        : yield* readConsoleCredential(path.resolve(dataHome, "opencode", databaseFile));
     let apiKey = consoleKey || goKey;
     if (!apiKey) return unsupported;
 

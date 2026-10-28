@@ -96,7 +96,7 @@ it.effect("reads Go limits with the instance's XDG credentials and preserves res
 );
 
 it.effect(
-  "uses the selected public Console key for Go limits, falling back only on auth rejection",
+  "uses the selected public Console credential for Go limits, falling back only on auth rejection",
   () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -118,6 +118,7 @@ it.effect(
       const consoleKey = { type: "key", key: "console-key" };
       const fingerprints = new Map([
         ["console-key", "3e45cfde9158185930d4cc7020a4e390895574fd54bd8f9631d23a336bbf94f0"],
+        ["token", "dfb046a0e3d73866fcf16443ca7cc602d8327bbe12b7167c971e0495f4d19ee6"],
         ["go-key", "d0e590e93fc9bd9353f2b993c0c287391cae505da2a78cb698b75418d2f5367e"],
         ["inline-key", "85649de18e63305548b6407e185f708483727ee6189cc4bc9512ddb17e23e776"],
       ]);
@@ -143,7 +144,15 @@ it.effect(
             methodID: "device",
             access: "token",
             refresh: "refresh",
-            expires: 0,
+            expires: 2000000000000,
+          },
+          requested: ["token"],
+        },
+        {
+          consoleRow: {
+            type: "oauth",
+            access: "token",
+            metadata: { server: "https://console.example" },
           },
           requested: ["go-key"],
         },
