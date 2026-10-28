@@ -22,7 +22,6 @@ import {
 } from "@t3tools/contracts";
 import type { EffortDisplay } from "@t3tools/contracts/settings";
 import { cn } from "~/lib/utils";
-import { shortcutLabelForCommand } from "../../keybindings";
 import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
@@ -54,8 +53,6 @@ export function ComposerControlsBar(props: {
   planModeEnabled: boolean;
   planModeUiEnabled: boolean;
   effortDisplay: EffortDisplay;
-  /** The strip under a new thread names the permissions, so the row does not repeat them. */
-  permissionsShownInStrip: boolean;
   interactionMode: ProviderInteractionMode;
   compatibleRuntimeMode: RuntimeMode;
   defaultRuntimeMode: RuntimeMode | undefined;
@@ -151,7 +148,6 @@ export function ComposerControlsBar(props: {
     planModeEnabled,
   });
   const accessMatchesDefault = compatibleRuntimeMode === defaultRuntimeMode;
-  const permissionsChipHidden = accessMatchesDefault || props.permissionsShownInStrip;
   const providerTraitsPickerInput = {
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -175,23 +171,9 @@ export function ComposerControlsBar(props: {
         onRuntimeModeChange={handleRuntimeModeChange}
       />
     ),
-    ...(permissionsChipHidden
-      ? {
-          extraMenuHint: [
-            `Permissions: ${
-              compatibleRuntimeModeOptions.find((option) => option.mode === compatibleRuntimeMode)
-                ?.label ?? compatibleRuntimeMode
-            }`,
-            shortcutLabelForCommand(keybindings, "composer.mode"),
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        }
-      : {}),
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const {
-    accessDisplay,
     showModeBlock,
     hiddenBlockCount: restingHiddenBlockCount,
     hiddenBlockIds: hiddenRestingBlockIds,
@@ -199,7 +181,7 @@ export function ComposerControlsBar(props: {
     effortOwnsModeShortcut,
     overflowShowsPermissions,
   } = resolveComposerControlsOwnership({
-    matchesDefault: permissionsChipHidden,
+    matchesDefault: false,
     hasTraits: providerTraitsPicker !== null,
     planModeUiEnabled,
     collapsed: composerControlsCollapsed,
@@ -233,7 +215,7 @@ export function ComposerControlsBar(props: {
                 runtimeModeOptions={compatibleRuntimeModeOptions}
                 size={composerControlsCollapsed ? "xs" : "sm"}
                 hidden={composerControlsHidden || restingHiddenBlockCount > 0}
-                accessDisplay={accessDisplay}
+                accessDisplay="label"
                 emphasized={!accessMatchesDefault}
                 onToggleInteractionMode={toggleInteractionMode}
                 onRuntimeModeChange={handleRuntimeModeChange}
