@@ -164,10 +164,14 @@ export const make = Effect.gen(function* () {
 
   // The descriptor is public, so this sends no credential to whatever
   // answers at a saved LAN address on a different network.
-  const checkDescriptor = (httpBaseUrl: string, environmentId: string) =>
+  const checkDescriptor = (
+    httpBaseUrl: string,
+    environmentId: string,
+    timeoutMs = ROUTE_CHECK_TIMEOUT_MS,
+  ) =>
     fetchRemoteEnvironmentDescriptor({
       httpBaseUrl,
-      timeoutMs: routeCheckTimeoutMs(route),
+      timeoutMs,
     }).pipe(
       Effect.map((descriptor): RouteCheck =>
         descriptor.environmentId === environmentId ? "answered" : "silent",
@@ -181,7 +185,11 @@ export const make = Effect.gen(function* () {
   const checkRoute = (entry: ConnectionCatalogEntry, route: ConnectionRoute) => {
     const httpBaseUrl = routeHttpBaseUrl(route);
     if (httpBaseUrl === null) return Effect.succeed<RouteCheck>("unchecked");
-    return checkDescriptor(httpBaseUrl, entry.target.environmentId).pipe(
+    return checkDescriptor(
+      httpBaseUrl,
+      entry.target.environmentId,
+      routeCheckTimeoutMs(route),
+    ).pipe(
       Effect.withSpan("ConnectionDriver.checkRoute", {
         attributes: { "connection.target.kind": route.target._tag },
       }),
