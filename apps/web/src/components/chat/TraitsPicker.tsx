@@ -321,7 +321,7 @@ interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
   /** Composer chips name the effort level unless the user picked bars. */
   effortDisplay?: EffortDisplay;
-  /** Extra section shown below the traits in the picker popup (Permissions). */
+  /** Extra section shown above the traits in the picker popup (Permissions). */
   extraMenuContent?: ReactNode;
   /** This trigger also answers composer.mode (while the permissions chip is hidden). */
   extraMenuOwnsModeShortcut?: boolean;
@@ -340,6 +340,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
+  isComposerOwned = false,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const modelSelection =
@@ -396,6 +397,12 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     if ("modelOptions" in change) updateModelOptions(change.modelOptions);
   };
 
+  const menuSelectDescriptors = isComposerOwned
+    ? selectDescriptors.toSorted(
+        (a, b) => Number(b.id === "serviceTier") - Number(a.id === "serviceTier"),
+      )
+    : selectDescriptors;
+
   if (!hasAnyControls) {
     return null;
   }
@@ -428,7 +435,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
 
   return (
     <>
-      {selectDescriptors.map((descriptor, index) => {
+      {menuSelectDescriptors.map((descriptor, index) => {
         const selectedValue =
           ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
             ? "ultrathink"
@@ -730,8 +737,18 @@ export const TraitsPicker = memo(function TraitsPicker({
         </TooltipTrigger>
         <TooltipPopup side="top">{triggerDescription}</TooltipPopup>
       </Tooltip>
-      <MenuPopup align="start" {...(isComposerOwned ? composerFloatingLayerProps : {})}>
+      <MenuPopup
+        align={isComposerOwned ? "end" : "start"}
+        {...(isComposerOwned ? composerFloatingLayerProps : {})}
+      >
+        {extraMenuContent ? (
+          <>
+            {extraMenuContent}
+            <MenuDivider />
+          </>
+        ) : null}
         <TraitsMenuContent
+          isComposerOwned={isComposerOwned ?? false}
           provider={provider}
           {...(instanceId ? { instanceId } : {})}
           models={models}
@@ -744,12 +761,6 @@ export const TraitsPicker = memo(function TraitsPicker({
           planModeEnabled={planModeEnabled}
           {...persistence}
         />
-        {extraMenuContent ? (
-          <>
-            <MenuDivider />
-            {extraMenuContent}
-          </>
-        ) : null}
       </MenuPopup>
     </Menu>
   );

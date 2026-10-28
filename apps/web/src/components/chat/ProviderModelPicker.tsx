@@ -276,7 +276,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         {...(props.isComposerOwned ? composerFloatingLayerProps : {})}
         ref={lockBackgroundScroll}
         initialFocus={searchInputRef}
-        align="start"
+        align={props.isComposerOwned ? "end" : "start"}
         className="before:hidden"
         padding="none"
         touchBackdrop
