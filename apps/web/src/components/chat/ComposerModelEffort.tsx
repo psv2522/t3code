@@ -325,7 +325,7 @@ function EffortRows(props: { control: ColumnControl; traits: TraitsSelection; lo
   }
   const { locked } = props;
   const value = traits.selectValue(control.descriptor);
-  const choices = selectableProviderOptionChoices(control.descriptor);
+  const choices = traits.choices(control.descriptor);
   // An "Ultrathink:" prefix selects a level the column does not offer.
   const shown = choices.some((option) => option.id === value);
   return (
