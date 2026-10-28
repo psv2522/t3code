@@ -163,6 +163,10 @@ cmd_build_node() {
 }
 
 restore_generated_files() {
+  if [[ -n "${P2CODE_SMOKE_PID:-}" ]]; then
+    wait "$P2CODE_SMOKE_PID" || true
+    P2CODE_SMOKE_PID=""
+  fi
   git -C "$REPO" checkout -- "${VERSION_FILES[@]}" "${GENERATED_FILES[@]}" 2>/dev/null || true
 }
 
@@ -247,7 +251,10 @@ cmd_build() {
   local archive="$build_dir/cli/t3-$version-darwin-arm64.tar.gz"
   [[ -f "$archive" ]] || die "Expected archive $archive was not produced."
 
-  step "Smoke-testing CLI archive" node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version"
+  local smoke_log="$build_dir/cli-smoke.log"
+  printf '  Smoke-testing CLI archive in parallel (log: %s)\n' "$smoke_log"
+  node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$version" >"$smoke_log" 2>&1 &
+  P2CODE_SMOKE_PID=$!
 
   step "Packaging desktop app" env T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true T3CODE_DESKTOP_CLIENT_ONLY=true vp run dist:desktop:artifact \
     --platform "$TARGET_PLATFORM" \
@@ -286,6 +293,18 @@ cmd_build() {
   run codesign --verify --deep --strict "$app" || die "Built app failed codesign verification."
   [[ "$(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')" == "com.t3tools.t3code" ]] ||
     die "Signed app has an unexpected bundle identifier."
+  end
+
+  begin "Checking CLI archive smoke test result"
+  local smoke_status=0
+  wait "$P2CODE_SMOKE_PID" || smoke_status=$?
+  P2CODE_SMOKE_PID=""
+  cat "$smoke_log" >>"$STEP_LOG"
+  if [[ "$smoke_status" -ne 0 ]]; then
+    printf 'FAILED\n' >&2
+    tail -n 40 "$smoke_log" >&2
+    die "CLI archive smoke test failed (exit $smoke_status). Log: $smoke_log"
+  fi
   end
 
   begin "Staging local release"
