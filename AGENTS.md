@@ -273,7 +273,21 @@ In the desktop app the sidebar update button, Settings → About "Check for Upda
 - The app is signed with a self-signed certificate (`P2CODE_SIGN_IDENTITY`, default `p2code Local Signing`), created once by `p2code setup-signing` in the login keychain. Ad hoc signing makes the designated requirement a `cdhash` that changes every build, so macOS rejects the app's `T3 Code (Nightly) Safe Storage` key, the desktop cannot decrypt `connection-catalog.json`, and T3 Connect needs a new sign-in after every update. A certificate leaf keeps the requirement stable. The build fails when the identity is missing; `P2CODE_SIGN_IDENTITY=-` signs ad hoc. Switching identity once costs one keychain prompt (Always Allow) and one sign-in; if the desktop shows no environment afterwards, move `~/.t3/userdata/connection-catalog.json` aside and sign in again. Passkeys stay unavailable.
 - The repo-root `.env` (gitignored, copied from `.env.example`) bakes the T3 Connect values (`relay.t3.codes`, production Clerk) into the build. The build refuses to run without it, and checks the relay URL is present in the bundles.
 
-- Android release builds (`./gradlew assembleRelease` in `apps/mobile/android`) need an 8 GB Gradle heap. The generated `gradle.properties` sets 4 GB, and R8 minification dies with `OutOfMemoryError: GC overhead limit exceeded`. Pass `"-Dorg.gradle.jvmargs=-Xmx8g -XX:MaxMetaspaceSize=1g"` and `-PreactNativeArchitectures=arm64-v8a`; `./gradlew --stop` first so a daemon with the old heap is not reused.
+### Android APK builds
+
+For the owner's Android APK, build the committed `p2code/custom` branch, not an upstream tag. Use the standalone builder and keep its dedicated checkout and signing state between runs:
+
+```sh
+python3 scripts/build-android-apk.py \
+  --source "$PWD" --ref p2code/custom \
+  --checkout "${PWD}-android-build" \
+  --sdk /opt/homebrew/share/android-commandlinetools \
+  --java-home /opt/homebrew/opt/openjdk@21 \
+  --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64' \
+  --output "$HOME/Downloads"
+```
+
+The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB Mac with two Gradle workers, a 3 GiB heap, in-process Kotlin, and Java 17 toolchains provisioned by Gradle. Preserve upstream minification, the three compression/shrinking properties, and the persistent signing identity under `~/.cache/t3-android/signing`. Do not substitute the former 8 GiB heap workaround or run Gradle clean routinely. Follow [Local Nightly Android APK](docs/operations/android-apk.md) for cache preservation, fresh Metro temp directories, revision selection, and validation. Deliver only the APK to Downloads. Keep receipts under `~/.cache/t3-android/receipts`; disable v4 signing so no `.idsig` sidecar is generated. Phone installation and launch remain unverified until actually tested; never uninstall an app or erase data automatically.
 
 ### Install and rollback
 
