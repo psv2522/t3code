@@ -157,6 +157,7 @@ export interface CodexAppServerProviderSnapshot {
   readonly endpoint?: string | undefined;
   readonly nativeUsage?: boolean;
   readonly rateLimits?: CodexRateLimitsProbe;
+  readonly authEmail?: string;
   readonly version: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel> | undefined;
   readonly serviceTier?: string | undefined;
@@ -513,6 +514,43 @@ const readCodexModelsCacheFetchedAt = Effect.fn("readCodexModelsCacheFetchedAt")
   );
 });
 
+const decodeCodexAuthFile = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      tokens: Schema.Struct({
+        id_token: Schema.String,
+        account_id: Schema.optional(Schema.String),
+      }),
+    }),
+  ),
+);
+const decodeCodexIdTokenClaims = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ email: Schema.optional(Schema.String) })),
+);
+
+export const readCodexAuthEmail = Effect.fn("readCodexAuthEmail")(function* (
+  codexHome: string,
+  accountId: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const text = yield* fileSystem
+    .readFileString(path.join(codexHome, "auth.json"))
+    .pipe(Effect.option);
+  return Option.getOrUndefined(
+    Option.flatMap(text, decodeCodexAuthFile).pipe(
+      Option.filter(({ tokens }) => tokens.account_id === accountId),
+      Option.flatMap(({ tokens }) =>
+        decodeCodexIdTokenClaims(
+          Buffer.from(tokens.id_token.split(".")[1] ?? "", "base64url").toString("utf8"),
+        ),
+      ),
+      Option.map((claims) => claims.email?.trim()),
+      Option.filter((email) => !!email),
+    ),
+  );
+});
+
 const withCodexDiscoveryDeadline = Effect.fnUntraced(function* <A, E, R>(
   effect: Effect.Effect<A, E, R>,
   deadlineMs: number,
@@ -734,10 +772,17 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   );
 
   const cyberAccess = Option.getOrUndefined(decodeCodexCyberAccessConfig(config));
+  // A custom model provider with requires_openai_auth = false makes account/read return no account while usage still reads auth.json.
+  const authEmail =
+    !accountResponse.account && rateLimits && "accountId" in rateLimits && rateLimits.accountId
+      ? yield* readCodexAuthEmail(initialize.codexHome, rateLimits.accountId.trim())
+      : undefined;
+
   return {
     account: accountResponse,
     endpoint: config ? codexCustomEndpoint(config) : undefined,
     nativeUsage,
+    ...(authEmail ? { authEmail } : {}),
     ...(rateLimits ? { rateLimits } : {}),
     version,
     models,
@@ -849,7 +894,7 @@ const makePendingCodexProvider = Effect.fn("CodexProvider.makePendingCodexProvid
 const quotePath = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
 function accountProbeStatus(
-  { account, rateLimits }: CodexAppServerProviderSnapshot,
+  { account, rateLimits, authEmail: fileAuthEmail }: CodexAppServerProviderSnapshot,
   codexHome: string | undefined,
 ): {
   readonly status: Exclude<ServerProviderState, "disabled">;
@@ -860,7 +905,7 @@ function accountProbeStatus(
     account.account,
     rateLimits && "snapshot" in rateLimits ? rateLimits.snapshot.planType : undefined,
   );
-  const authEmail = codexAccountEmail(account.account);
+  const authEmail = codexAccountEmail(account.account) ?? fileAuthEmail;
   const workspaceId =
     rateLimits && "accountId" in rateLimits ? rateLimits.accountId?.trim() : undefined;
   const auth = {

@@ -6838,6 +6838,61 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       expectedClass: "usage_limit",
     },
     {
+      name: "proxy-cooldown",
+      code: "responseTooManyFailedAttempts",
+      errorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+      message:
+        'exceeded retry limit, last status: 429 Too Many Requests: {"error":{"code":"model_cooldown","message":"All credentials are cooling down","reset_seconds":120}}',
+      notification: false,
+      expectedClass: "usage_limit",
+      expectedResetSeconds: 120,
+    },
+    {
+      name: "proxy-cooldown-notification",
+      code: "responseTooManyFailedAttempts",
+      errorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+      message: 'exceeded retry limit: {"error":{"code":"model_cooldown","reset_seconds":60}}',
+      notification: true,
+      expectedClass: "usage_limit",
+      expectedResetSeconds: 60,
+    },
+    {
+      name: "proxy-usage-limit",
+      code: "usageLimitExceeded",
+      message: '{"error":{"code":"model_cooldown","reset_seconds":45}}',
+      notification: false,
+      expectedClass: "usage_limit",
+      expectedResetSeconds: 45,
+    },
+    {
+      name: "proxy-cooldown-details",
+      code: "responseTooManyFailedAttempts",
+      errorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+      message: "exceeded retry limit",
+      details: '{"error":{"code":"model_cooldown","reset_seconds":90}}',
+      notification: true,
+      expectedClass: "usage_limit",
+      expectedResetSeconds: 90,
+    },
+    {
+      name: "proxy-invalid-cooldown",
+      code: "responseTooManyFailedAttempts",
+      errorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+      message: 'exceeded retry limit: {"error":{"code":"model_cooldown","reset_seconds":-1}}',
+      notification: false,
+      expectedClass: "usage_limit",
+      expectedResetNull: true,
+    },
+    {
+      name: "unrelated-retry-seconds",
+      code: "responseTooManyFailedAttempts",
+      errorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+      message: '{"error":{"code":"other_error","reset_seconds":90}}',
+      notification: false,
+      expectedClass: "usage_limit",
+      expectedResetNull: true,
+    },
+    {
       name: "exhausted-500",
       code: "responseTooManyFailedAttempts",
       errorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 500 } },
@@ -7135,11 +7190,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             : Effect.void,
         () => Deferred.succeed(snapshotReceipt, undefined),
       );
+      const startedAt = yield* DateTime.now;
       yield* harness.runtime.startTurn(
         makeCodexTestTurnInput({
           threadId: harness.threadId,
           providerThread: harness.providerThread,
-          now: yield* DateTime.now,
+          now: startedAt,
           text: "Continue.",
           attemptId: RunAttemptId.make(`attempt-limit-${scenario.name}`),
         }),
@@ -7150,6 +7206,16 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       if (terminal?.status !== "failed") return;
       assert.equal(terminal.failure.class, scenario.expectedClass);
       assert.equal(terminal.threadDisposition, "reusable");
+      if ("expectedResetSeconds" in scenario)
+        assert.equal(
+          terminal.failure.resetAt,
+          DateTime.formatIso(
+            DateTime.makeUnsafe(
+              DateTime.toEpochMillis(startedAt) + scenario.expectedResetSeconds * 1000,
+            ),
+          ),
+        );
+      if ("expectedResetNull" in scenario) assert.equal(terminal.failure.resetAt, null);
       if (scenario.name === "deferred-reset" || scenario.name === "first-request-reset")
         assert.equal(terminal.failure.resetAt, resetAt);
       if (scenario.name === "newer-reset-during-read")

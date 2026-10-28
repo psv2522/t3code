@@ -1,11 +1,48 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
 import {
   applyPreferredCodexDefaultModel,
   codexCustomEndpoint,
   codexRoutesSpendNativeQuota,
   mapCodexModelCapabilities,
+  readCodexAuthEmail,
 } from "./CodexProvider.ts";
+
+const idToken = (claims: object) =>
+  `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+
+it.effect("reads the Codex login email only for the account the usage read named", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codex-auth-email-" });
+    const email = (accountId: string) => readCodexAuthEmail(home, accountId);
+
+    assert.strictEqual(yield* email("acct-1"), undefined);
+
+    yield* fileSystem.writeFileString(
+      path.join(home, "auth.json"),
+      JSON.stringify({
+        tokens: {
+          id_token: idToken({ email: "me@example.com" }),
+          account_id: "acct-1",
+        },
+      }),
+    );
+    assert.strictEqual(yield* email("acct-1"), "me@example.com");
+    assert.strictEqual(yield* email("acct-2"), undefined);
+
+    yield* fileSystem.writeFileString(
+      path.join(home, "auth.json"),
+      JSON.stringify({ tokens: { id_token: idToken({}), account_id: "acct-1" } }),
+    );
+    assert.strictEqual(yield* email("acct-1"), undefined);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
 
 it("maps current Codex model capability fields", () => {
   const capabilities = mapCodexModelCapabilities({

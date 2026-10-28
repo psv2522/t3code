@@ -392,7 +392,15 @@ function collectLimitAccountMap(presentations: LimitPresentations) {
   );
   for (const [environmentId, presentation] of presentations) {
     const label = presentation.entry.target.label;
+    const hubDrivers = new Set(
+      (presentation.serverConfig?.usageLimitSources ?? []).flatMap((source) =>
+        source.accounts
+          .filter((account) => limitsNotice(account.usageLimits) === null)
+          .map((account) => account.driver),
+      ),
+    );
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
+      if (hubDrivers.has(provider.driver) && !resolveKey(nativeReport(provider))) continue;
       if (!provider.usageLimits || limitsNotice(provider.usageLimits) !== null) continue;
       merge(resolveKey(nativeReport(provider)) ?? `${environmentId}:${provider.instanceId}`, {
         key: `${environmentId}:${provider.instanceId}`,
@@ -573,27 +581,36 @@ export function collectLimitPools(
     if (list) list.push(account);
     else byDriver.set(account.driver, [account]);
   }
-  return [...byDriver].map(([driver, members]) => {
-    const orderWindow = members
-      .flatMap((account) => account.limits.windows)
-      .sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind])[0];
-    const orderReset = (account: LimitAccount) => {
-      const window = account.limits.windows.find(
-        (window) => orderWindow && poolKey(driver, window) === poolKey(driver, orderWindow),
+  const preferredDrivers = ["claudeAgent", "codex", "opencode"];
+  return [...byDriver]
+    .sort(([left], [right]) => {
+      const rank = (driver: string) => {
+        const index = preferredDrivers.indexOf(driver);
+        return index === -1 ? preferredDrivers.length : index;
+      };
+      return rank(left) - rank(right);
+    })
+    .map(([driver, members]) => {
+      const orderWindow = members
+        .flatMap((account) => account.limits.windows)
+        .sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind])[0];
+      const orderReset = (account: LimitAccount) => {
+        const window = account.limits.windows.find(
+          (window) => orderWindow && poolKey(driver, window) === poolKey(driver, orderWindow),
+        );
+        return (
+          (window ? resetMillis(poolMember(account, window, now).window) : null) ??
+          Number.POSITIVE_INFINITY
+        );
+      };
+      const sorted = [...members].sort(
+        (left, right) =>
+          orderReset(left) - orderReset(right) ||
+          accountSortName(left).localeCompare(accountSortName(right)) ||
+          left.key.localeCompare(right.key),
       );
-      return (
-        (window ? resetMillis(poolMember(account, window, now).window) : null) ??
-        Number.POSITIVE_INFINITY
-      );
-    };
-    const sorted = [...members].sort(
-      (left, right) =>
-        orderReset(left) - orderReset(right) ||
-        accountSortName(left).localeCompare(accountSortName(right)) ||
-        left.key.localeCompare(right.key),
-    );
-    return { driver, accounts: sorted, windows: poolWindows(sorted, now) };
-  });
+      return { driver, accounts: sorted, windows: poolWindows(sorted, now) };
+    });
 }
 
 function accountSortName(account: LimitAccount): string {

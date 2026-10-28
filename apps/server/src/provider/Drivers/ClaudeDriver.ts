@@ -21,6 +21,7 @@ import {
   createClaudeAdapterV2,
   type ClaudeAdapterV2DriverEnv,
 } from "../../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
+import * as UsageLimitSources from "../../usage/UsageLimitSources.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { claudeUsageReader } from "./claudeUsage.ts";
 import { makeClaudeScopedLimitNames } from "../claudeUsageLimits.ts";
@@ -83,7 +84,8 @@ export type ClaudeDriverEnv =
   | ModelCatalog.ModelCatalog
   | Path.Path
   | ProviderEventLoggers.ProviderEventLoggers
-  | ServerConfig.ServerConfig;
+  | ServerConfig.ServerConfig
+  | UsageLimitSources.UsageLimitSources;
 
 export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.Path> = {
   driverKind: DRIVER_KIND,
@@ -111,6 +113,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     const httpClient = yield* HttpClient.HttpClient;
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const resetCreditCoordinator = yield* ResetCreditCoordinator.ResetCreditCoordinator;
+    const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
     const catalogService = yield* ModelCatalog.ModelCatalog;
     const modelCatalog = catalogService
       .current(DRIVER_KIND)
@@ -181,6 +184,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),
         modelCatalog,
         routeModelCatalog: modelRoutes.route,
+        usageLimitResetFallback: (baseUrl, model) =>
+          usageLimitSources.poolResetAt(baseUrl, "claude", model),
       },
     ).pipe(
       Effect.mapError(

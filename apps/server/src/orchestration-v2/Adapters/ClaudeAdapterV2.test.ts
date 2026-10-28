@@ -3393,6 +3393,10 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     > &
       Partial<Pick<ClaudeAdapterV2.ClaudeAgentSdkQuerySession, "listPermissionRules">>;
     readonly environment?: NodeJS.ProcessEnv;
+    readonly usageLimitResetFallback?: (
+      baseUrl: string,
+      model: string,
+    ) => Effect.Effect<string | null>;
     readonly subagentLaunchToolUseId?: string;
     readonly subagentModel?: string;
     readonly nativeSessionId?: string;
@@ -3462,6 +3466,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         settings: options?.settings ?? DEFAULT_CLAUDE_SETTINGS,
         ...(options?.modelCatalog === undefined ? {} : { modelCatalog: options.modelCatalog }),
         environment: options?.environment ?? {},
+        ...(options?.usageLimitResetFallback
+          ? { usageLimitResetFallback: options.usageLimitResetFallback }
+          : {}),
         attachmentsDir,
         fileSystem,
         path: yield* Path.Path,
@@ -8846,6 +8853,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   it.effect.each([
     { cooldown: " (reset after 1h2m3s)", seconds: 3723 },
     { cooldown: " (reset after 4m 6s) (last error: rate limited)", seconds: 246 },
+    { cooldown: ' {"error":{"code":"model_cooldown","reset_seconds":60}}', seconds: 60 },
     { cooldown: "", seconds: 0 },
   ])("keeps a gateway's reset on a direct 429 with cooldown '$cooldown'", (input) =>
     Effect.gen(function* () {
@@ -8888,6 +8896,174 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               DateTime.makeUnsafe(DateTime.toEpochMillis(now) + input.seconds * 1_000),
             )
           : null,
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
+  it.effect("uses the matching hub cooldown when Claude reports a bare proxy 429", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ baseUrl: string; model: string }> = [];
+      const homePath = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+        prefix: "t3-proxy-fallback-",
+      });
+      const harness = yield* makeWakeHarnessWithOptions({
+        environment: { ANTHROPIC_BASE_URL: "https://hub.test" },
+        settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath },
+        usageLimitResetFallback: (baseUrl, model) =>
+          Effect.sync(() => {
+            calls.push({ baseUrl, model });
+            return "2030-01-01T01:00:00.000Z";
+          }),
+      });
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("attempt-claude-proxy-fallback"),
+          text: "Continue.",
+          attachments: [],
+        }),
+      );
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({
+          uuid: "00000000-0000-4000-8000-000000000655",
+          result:
+            "API Error: Request rejected (429) · All credentials for model claude-opus-5-5 are cooling down",
+          terminalReason: "api_error",
+          isError: true,
+          apiErrorStatus: 429,
+        }),
+      );
+      const terminal = yield* Queue.take(harness.terminalReceipts);
+      assert.equal(terminal.status, "failed");
+      if (terminal.status !== "failed") return;
+      assert.equal(terminal.failure.resetAt, "2030-01-01T01:00:00.000Z");
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0]?.baseUrl, "https://hub.test");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
+  it.effect("honors Stop while looking up a proxy cooldown", () =>
+    Effect.gen(function* () {
+      const homePath = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+        prefix: "t3-proxy-stop-",
+      });
+      const lookupStarted = yield* Deferred.make<void>();
+      const lookupResult = yield* Deferred.make<string | null>();
+      const interruptStarted = yield* Deferred.make<void>();
+      const harness = yield* makeWakeHarnessWithOptions({
+        environment: { ANTHROPIC_BASE_URL: "https://hub.test" },
+        settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath },
+        usageLimitResetFallback: () =>
+          Deferred.succeed(lookupStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(lookupResult)),
+          ),
+        interrupt: Deferred.succeed(interruptStarted, undefined),
+        close: Queue.shutdown,
+      });
+      const attemptId = RunAttemptId.make("attempt-proxy-stop");
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId,
+          text: "Continue.",
+          attachments: [],
+        }),
+      );
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({
+          uuid: "00000000-0000-4000-8000-000000000656",
+          result:
+            "API Error: Request rejected (429) · All credentials for model claude-opus-5-5 are cooling down",
+          terminalReason: "api_error",
+          isError: true,
+          apiErrorStatus: 429,
+        }),
+      );
+      yield* Deferred.await(lookupStarted);
+      const interrupt = yield* harness.runtime
+        .interruptTurn({
+          providerThread: harness.providerThread,
+          providerTurnId: (yield* IdAllocator.IdAllocatorV2).derive.providerTurn({
+            driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+            nativeTurnId: `turn:${attemptId}`,
+          }),
+        })
+        .pipe(Effect.forkScoped);
+      yield* Deferred.await(interruptStarted);
+      yield* Deferred.succeed(lookupResult, "2030-01-01T01:00:00.000Z");
+      const terminal = yield* Queue.take(harness.terminalReceipts);
+      assert.equal(terminal.status, "interrupted");
+      yield* Fiber.join(interrupt);
+      assert.lengthOf(harness.terminalEvents(), 1);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
+  it.effect("keeps the reset Claude already received without consulting the hub", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarnessWithOptions({
+        usageLimitResetFallback: () => Effect.die("Unexpected hub lookup"),
+      });
+      const now = yield* DateTime.now;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          attemptId: RunAttemptId.make("attempt-proxy-known-reset"),
+          text: "Continue.",
+          attachments: [],
+        }),
+      );
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({
+          uuid: "00000000-0000-4000-8000-000000000657",
+          result:
+            "API Error: Request rejected (429) · All credentials for model claude-opus-5-5 are cooling down (reset after 2m)",
+          terminalReason: "api_error",
+          isError: true,
+          apiErrorStatus: 429,
+        }),
+      );
+      const terminal = yield* Queue.take(harness.terminalReceipts);
+      assert.equal(terminal.status, "failed");
+      if (terminal.status !== "failed") return;
+      assert.equal(
+        terminal.failure.resetAt,
+        DateTime.formatIso(DateTime.makeUnsafe(DateTime.toEpochMillis(now) + 120_000)),
       );
     }).pipe(
       Effect.provide(

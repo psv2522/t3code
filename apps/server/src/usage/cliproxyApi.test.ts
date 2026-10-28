@@ -55,6 +55,13 @@ function fixture(
       provider: string;
       email?: string;
       disabled?: boolean;
+      unavailable?: boolean;
+      cooldowns?: Array<{
+        scope: string;
+        model_key?: string;
+        reason: string;
+        retry_at?: string;
+      }> | null;
       project_id?: string;
       id_token?: { chatgpt_account_id: string; plan_type?: string; chatgpt_plan_type?: string };
     }>;
@@ -198,6 +205,60 @@ describe("CLIProxyAPI hub failures", () => {
 });
 
 describe("CLIProxyAPI built-in management API", () => {
+  it.effect("reads the earliest eligible Claude pool cooldown without guessing missing state", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2030-01-01T00:00:00Z"));
+      const base = { provider: "claude", unavailable: true };
+      const account = (
+        id: string,
+        cooldowns: Array<{
+          scope: string;
+          model_key?: string;
+          reason: string;
+          retry_at?: string;
+        }> | null,
+      ) => ({ ...base, id, auth_index: id, cooldowns });
+      const cooldown = (retry_at: string, scope = "credential", model_key?: string) => ({
+        scope,
+        reason: "quota",
+        retry_at,
+        ...(model_key ? { model_key } : {}),
+      });
+      const cases = [
+        {
+          accounts: [
+            account("a", [cooldown("2030-01-01T02:00:00Z")]),
+            account("b", [cooldown("2030-01-01T01:00:00Z")]),
+          ],
+          expected: "2030-01-01T01:00:00.000Z",
+        },
+        {
+          accounts: [
+            account("a", [
+              cooldown("2030-01-01T02:00:00Z"),
+              cooldown("2030-01-01T03:00:00Z", "model", "claude-opus"),
+            ]),
+          ],
+          expected: "2030-01-01T03:00:00.000Z",
+        },
+        {
+          accounts: [account("a", [cooldown("2030-01-01T02:00:00Z")]), account("b", null)],
+          expected: null,
+        },
+        {
+          accounts: [account("a", [cooldown("2030-01-01T02:00:00Z", "model", "another-model")])],
+          expected: null,
+        },
+        { accounts: [account("a", [cooldown("2029-12-31T23:00:00Z")])], expected: null },
+      ];
+      for (const entry of cases) {
+        const test = fixture({ accounts: entry.accounts });
+        const api = yield* test.api;
+        expect(yield* api.readPoolResetAt(config, "claude", "claude-opus")).toBe(entry.expected);
+        expect(test.requests.map((r) => r.path)).toEqual(["/v0/management/auth-files"]);
+      }
+    }),
+  );
   it.effect(
     "reads both accounts and their earliest unexpired credits without plugin endpoints",
     () =>
@@ -278,12 +339,14 @@ describe("CLIProxyAPI built-in management API", () => {
     "https://tools.test/cliproxy/management.html#accounts",
     "https://tools.test/cliproxy/management.html/?tab=accounts",
     "https://tools.test/cliproxy/management.html/#accounts",
+    "https://tools.test/cliproxy/v0/management",
+    "https://tools.test/cliproxy/v0/management/",
   ])("keeps the path of a hub served under a prefix: %s", (url) =>
     Effect.gen(function* () {
       const test = fixture();
       const api = yield* test.api;
       yield* api.readAccounts({ ...config, url });
-      expect(test.requests.length).toBeGreaterThan(0);
+      expect(test.requests[0]?.path).toBe("/cliproxy/v0/management/auth-files");
       expect(
         test.requests.every((request) => request.path.startsWith("/cliproxy/v0/management/")),
       ).toBe(true);
@@ -434,6 +497,26 @@ describe("CLIProxyAPI built-in management API", () => {
       });
       const result = yield* (yield* test.api).readAccounts(config);
       expect(result[0]?.usageLimits.windows.map((window) => window.id)).toEqual(["five_hour"]);
+    }),
+  );
+
+  it.effect("keeps a Claude account whose window reports no utilization", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        accounts: [{ ...accounts[0]!, provider: "claude" }],
+        upstream: () => ({
+          status: 200,
+          body: {
+            five_hour: { utilization: null, resets_at: null },
+            seven_day: { utilization: 50, resets_at: "2099-01-01T00:00:00Z" },
+          },
+        }),
+      });
+      const result = yield* (yield* test.api).readAccounts(config);
+      expect(result[0]?.usageLimits.unavailable).toBeUndefined();
+      expect(
+        result[0]?.usageLimits.windows.map((window) => [window.id, window.usedPercent]),
+      ).toEqual([["seven_day", 50]]);
     }),
   );
 

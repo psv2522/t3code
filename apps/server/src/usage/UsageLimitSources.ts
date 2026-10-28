@@ -36,6 +36,11 @@ export class UsageLimitSources extends Context.Service<
     readonly current: Effect.Effect<ReadonlyArray<UsageLimitSourceSnapshot>>;
     readonly streamChanges: Stream.Stream<ReadonlyArray<UsageLimitSourceSnapshot>>;
     readonly refresh: Effect.Effect<void>;
+    readonly poolResetAt: (
+      baseUrl: string,
+      provider: string,
+      model: string,
+    ) => Effect.Effect<string | null>;
     readonly consumeResetCredit: (
       input: UsageLimitSourceConsumeResetCreditInput,
     ) => Effect.Effect<ProviderConsumeResetCreditResult, UsageLimitSourceError>;
@@ -56,6 +61,13 @@ function missingManagementKey(config: UsageLimitSourceConfig): string {
   return typeof config.managementKey === "string"
     ? "No management key configured."
     : "Could not read the management key from its secret provider.";
+}
+
+function hubOrigin(url: string): string | null {
+  const parsed = URL.parse(url);
+  return parsed && (parsed.protocol === "http:" || parsed.protocol === "https:")
+    ? parsed.origin
+    : null;
 }
 
 /** @public */
@@ -114,6 +126,36 @@ export const make = Effect.gen(function* () {
 
   // Serialize refreshes so slow old-settings reads cannot resurrect removed sources after newer refreshes.
   const refreshLock = yield* Semaphore.make(1);
+  const poolResetAt = Effect.fn("UsageLimitSources.poolResetAt")(function* (
+    baseUrl: string,
+    provider: string,
+    model: string,
+  ) {
+    const origin = hubOrigin(baseUrl);
+    if (!origin) return null;
+    return yield* Effect.gen(function* () {
+      const settings = yield* settingsService.getSettings;
+      const matching = Object.entries(settings.usageLimitSources).filter(
+        ([, config]) => config.enabled && hubOrigin(config.url) === origin,
+      );
+      if (matching.length !== 1) return null;
+      const [id, config] = matching[0]!;
+      const managementKey = yield* readManagementKey(config);
+      if (!managementKey) return null;
+      const result = yield* api.readPoolResetAt(
+        { url: config.url, managementKey },
+        provider,
+        model,
+      );
+      const current = yield* settingsService.getSettings;
+      return Equal.equals(current.usageLimitSources[id as UsageLimitSourceId], config)
+        ? result
+        : null;
+    }).pipe(
+      Effect.timeout("5 seconds"),
+      Effect.orElseSucceed(() => null),
+    );
+  });
   const refresh = Effect.gen(function* () {
     const settings = yield* settingsService.getSettings.pipe(
       Effect.orElseSucceed((): ServerSettings | null => null),
@@ -190,6 +232,7 @@ export const make = Effect.gen(function* () {
     current: Ref.get(stateRef),
     consumeResetCredit,
     refresh,
+    poolResetAt,
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {
@@ -268,3 +311,13 @@ export const layerResetFallback = Layer.effect(
     };
   }),
 );
+
+export const layerTest = Layer.succeed(UsageLimitSources, {
+  current: Effect.succeed([]),
+  streamChanges: Stream.make([]),
+  refresh: Effect.void,
+  poolResetAt: Effect.fn("UsageLimitSources.poolResetAt")(() => Effect.succeed(null)),
+  consumeResetCredit: Effect.fn("UsageLimitSources.consumeResetCredit")(() =>
+    Effect.fail(new UsageLimitSourceError({ detail: "No usage limit source in tests." })),
+  ),
+});

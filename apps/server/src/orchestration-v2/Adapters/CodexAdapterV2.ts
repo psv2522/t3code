@@ -57,6 +57,7 @@ import {
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
 import { appendGeneratedImageEmbeds } from "@t3tools/shared/generatedImageMarkdown";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { proxyCooldownResetAt } from "../../provider/proxyCooldown.ts";
 import { mcpToolResultOutput } from "@t3tools/shared/toolOutput";
 import type {
   ChatAttachment,
@@ -5073,6 +5074,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
             const notificationCode = codexErrorInfoCode(payload.error.codexErrorInfo);
             if (!payload.willRetry) {
+              const resetAt = codexUsageLimitError(notificationCode, payload.error.codexErrorInfo)
+                ? (proxyCooldownResetAt(
+                    payload.error.additionalDetails ?? payload.error.message,
+                    yield* DateTime.now,
+                  ) ?? proxyCooldownResetAt(payload.error.message, yield* DateTime.now))
+                : null;
               context.latestProviderFailure = {
                 nativeMessage: payload.error.message,
                 nativeCode: notificationCode,
@@ -5083,6 +5090,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     class: codexUsageLimitError(notificationCode, payload.error.codexErrorInfo)
                       ? "usage_limit"
                       : "provider_error",
+                    resetAt,
                   }),
                   payload.error,
                 ),
@@ -5113,6 +5121,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     ? "transport_error"
                     : "provider_error",
                 retryable: true,
+                resetAt: codexUsageLimitError(code, payload.error.codexErrorInfo)
+                  ? (proxyCooldownResetAt(additionalDetails, updatedAt) ??
+                    proxyCooldownResetAt(payload.error.message, updatedAt))
+                  : null,
               }),
               payload.error,
             );
@@ -6257,7 +6269,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   failure.class === "usage_limit"
                     ? {
                         ...failure,
-                        resetAt: failureResetAt(failure, yield* Ref.get(rateLimitSnapshot)),
+                        resetAt:
+                          failure.resetAt ??
+                          (codexUsageLimitError(failureCode ?? null, input.failureErrorInfo)
+                            ? proxyCooldownResetAt(
+                                input.failureMessage ?? failure.message,
+                                yield* DateTime.now,
+                              )
+                            : null) ??
+                          failureResetAt(failure, yield* Ref.get(rateLimitSnapshot)),
                       }
                     : failure,
                 ...(input.providerRetry === undefined

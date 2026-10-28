@@ -54,6 +54,26 @@ const AuthFile = Schema.Struct({
   ),
 });
 const AuthFiles = Schema.Struct({ files: Schema.Array(AuthFile) });
+const PoolAuthFiles = Schema.Struct({
+  files: Schema.Array(
+    Schema.Struct({
+      provider: Schema.String,
+      disabled: Schema.optional(Schema.Boolean),
+      cooldowns: Schema.optional(
+        Schema.NullOr(
+          Schema.Array(
+            Schema.Struct({
+              scope: Schema.String,
+              model_key: Schema.optional(Schema.String),
+              reason: Schema.String,
+              retry_at: Schema.optional(Schema.String),
+            }),
+          ),
+        ),
+      ),
+    }),
+  ),
+});
 const ApiResponse = Schema.Struct({ status_code: Schema.Number, body: Schema.String });
 const CodexWindow = Schema.Struct({
   used_percent: Schema.Number,
@@ -69,8 +89,9 @@ const CodexUsage = Schema.Struct({
     }),
   ),
 });
+// The usage endpoint can report a window without a utilization, as the CLI's own schema allows.
 const ClaudeWindow = Schema.Struct({
-  utilization: Schema.Number,
+  utilization: Schema.NullOr(Schema.Number),
   resets_at: Schema.NullOr(Schema.String),
 });
 const ClaudeUsage = Schema.Struct({
@@ -116,6 +137,7 @@ const CreditList = Schema.Struct({
 });
 
 const decodeAuthFiles = Schema.decodeUnknownEffect(AuthFiles);
+const decodePoolAuthFiles = Schema.decodeUnknownEffect(PoolAuthFiles);
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeApiResponse = Schema.decodeUnknownEffect(ApiResponse);
 const decodeCreditList = Schema.decodeUnknownEffect(Schema.fromJsonString(CreditList));
@@ -410,8 +432,8 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const url = yield* Effect.try({
       try: () => {
         const base = new URL(hub.url);
-        // Users often paste the hub's web panel URL, which ends in management.html.
-        base.pathname = base.pathname.replace(/(\/management\.html)?\/?$/i, "/");
+        // Users often paste the web panel URL (management.html) or the API base (/v0/management).
+        base.pathname = base.pathname.replace(/(\/management\.html|\/v0\/management)?\/?$/i, "/");
         return new URL(`v0/management/${path}`, base).toString();
       },
       catch: () => new UsageLimitSourceError({ detail: "The hub URL is not valid." }),
@@ -435,6 +457,41 @@ export const makeCliproxyApi = Effect.gen(function* () {
   const authFiles = Effect.fn("CliproxyApi.authFiles")(function* (hub: CliproxyHub) {
     const response = yield* management(hub, "auth-files");
     return (yield* decodeAuthFiles(response)).files;
+  });
+
+  const readPoolResetAt = Effect.fn("CliproxyApi.readPoolResetAt")(function* (
+    hub: CliproxyHub,
+    provider: string,
+    model: string,
+  ) {
+    const response = yield* management(hub, "auth-files");
+    const files = yield* decodePoolAuthFiles(response).pipe(
+      Effect.mapError(
+        () => new UsageLimitSourceError({ detail: "The hub returned invalid cooldowns." }),
+      ),
+    );
+    const accounts = files.files.filter((file) => file.provider === provider && !file.disabled);
+    if (accounts.length === 0) return null;
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    let earliest = Infinity;
+    for (const account of accounts) {
+      if (!account.cooldowns) return null;
+      let accountReset = -Infinity;
+      for (const cooldown of account.cooldowns) {
+        if (
+          cooldown.scope !== "credential" &&
+          !(cooldown.scope === "model" && cooldown.model_key === model)
+        )
+          continue;
+        if (cooldown.reason !== "quota" && cooldown.reason !== "credential_quota") return null;
+        const reset = Date.parse(cooldown.retry_at ?? "");
+        if (!Number.isFinite(reset) || reset <= now) return null;
+        accountReset = Math.max(accountReset, reset);
+      }
+      if (!Number.isFinite(accountReset)) return null;
+      earliest = Math.min(earliest, accountReset);
+    }
+    return DateTime.formatIso(DateTime.makeUnsafe(earliest));
   });
 
   const apiCall = Effect.fn("CliproxyApi.apiCall")(function* (
@@ -560,5 +617,5 @@ export const makeCliproxyApi = Effect.gen(function* () {
       ),
     );
   });
-  return { readAccounts, consume };
+  return { readAccounts, readPoolResetAt, consume };
 });
