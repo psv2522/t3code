@@ -316,7 +316,7 @@ export function DraftHeroHeadline({
         <TooltipTrigger
           render={
             <InlineButton
-              tone="muted"
+              tone="default"
               className="pointer-events-auto"
               onClick={() =>
                 void startScratch().then((started) => {
@@ -336,7 +336,7 @@ export function DraftHeroHeadline({
 
   if (isScratchDraft && isTriageDraftPrompt) {
     const environment = environments.find(
-      (entry) => entry.environmentId === activeProject.environmentId,
+      (entry) => entry.environmentId === activeProject?.environmentId,
     );
     return (
       <TriageDraftHero

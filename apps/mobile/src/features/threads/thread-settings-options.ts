@@ -108,4 +108,7 @@ export function compatibleRuntimeModeForChoices(
     : (choices[0]?.mode ?? runtimeMode);
 }
 
-export { selectableProviderOptionChoices as selectableChoices } from "@t3tools/client-runtime/model-traits";
+export {
+  selectableProviderOptionChoices as selectableChoices,
+  selectableProviderOptionToggles as selectableToggles,
+} from "@t3tools/client-runtime/model-traits";

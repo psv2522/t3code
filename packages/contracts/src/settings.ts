@@ -425,6 +425,9 @@ export const ClientSettingsSchema = Schema.Struct({
   htmlPreviewWidth: HtmlPreviewWidth.pipe(
     Schema.withDecodingDefault(Effect.succeed("chat" as const)),
   ),
+  showHighestReasoningEfforts: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -2126,6 +2129,7 @@ export const ClientSettingsPatch = Schema.Struct({
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   htmlPreviewWidth: Schema.optionalKey(HtmlPreviewWidth),
+  showHighestReasoningEfforts: Schema.optionalKey(Schema.Boolean),
   effortDisplay: Schema.optionalKey(EffortDisplay),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),

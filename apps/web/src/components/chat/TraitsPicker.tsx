@@ -4,6 +4,7 @@ import {
   getTraitSelectChange,
   replaceDescriptorCurrentValue,
   selectableProviderOptionChoices,
+  selectableProviderOptionToggles,
   isReasoningSelect,
 } from "@t3tools/client-runtime/model-traits";
 import {
@@ -35,6 +36,7 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
+import { getClientSettings, useClientSettings } from "../../hooks/useSettings";
 import { getProviderModelCapabilities, keepsUnavailableModelOptions } from "../../providerModels";
 import { m, type MessageResolver } from "~/i18n/messages";
 import { cn } from "~/lib/utils";
@@ -267,7 +269,9 @@ export function getReasoningTraitStep(input: {
   );
   if (selected.modelIsUnavailable || selected.ultrathinkInBodyText) return null;
   const descriptor = selected.selectDescriptors.find(isReasoningSelect);
-  const choices = descriptor ? selectableProviderOptionChoices(descriptor) : [];
+  const choices = descriptor
+    ? selectableProviderOptionChoices(descriptor, getClientSettings().showHighestReasoningEfforts)
+    : [];
   if (!descriptor || choices.length < 2) return null;
   const isPrimary = descriptor.id === selected.primarySelectDescriptor?.id;
   const current =
@@ -325,6 +329,9 @@ export function useTraitsSelection({
 }: TraitsSelectionInput) {
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
+  const showHighestReasoningEfforts = useClientSettings(
+    (settings) => settings.showHighestReasoningEfforts,
+  );
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const resolve = useMessages();
   const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
@@ -355,6 +362,10 @@ export function useTraitsSelection({
   });
   return {
     ...selected,
+    booleanDescriptors: selectableProviderOptionToggles(
+      selected.booleanDescriptors,
+      showHighestReasoningEfforts,
+    ),
     /** The option a select shows, where an Ultrathink prompt owns the primary select. */
     selectValue: (descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>) =>
       selected.ultrathinkPromptControlled && descriptor.id === selected.primarySelectDescriptor?.id
@@ -362,6 +373,8 @@ export function useTraitsSelection({
         : (getDescriptorStringValue(descriptor, modelSelection, reportedModelSelection) ?? ""),
     currentLabel: (descriptor: ProviderOptionDescriptor) =>
       getProviderOptionCurrentLabel(descriptor, modelSelection, reportedModelSelection),
+    choices: (descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>) =>
+      selectableProviderOptionChoices(descriptor, showHighestReasoningEfforts),
     changeSelect: (
       descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
       value: string,
@@ -445,7 +458,7 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
               value={traits.selectValue(descriptor)}
               onValueChange={(value) => traits.changeSelect(descriptor, value)}
             >
-              {selectableProviderOptionChoices(descriptor).map((option) => (
+              {traits.choices(descriptor).map((option) => (
                 <MenuRadioItem
                   key={option.id}
                   value={option.id}

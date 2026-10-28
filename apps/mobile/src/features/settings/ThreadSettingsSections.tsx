@@ -264,6 +264,25 @@ export function NewThreadSettingsSection() {
   );
 }
 
+export function ReasoningSettingsSection() {
+  const savePreferences = useAtomCommand(saveMobilePreferences);
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const showHighestReasoningEfforts =
+    !AsyncResult.isSuccess(preferences) || preferences.value.showHighestReasoningEfforts !== false;
+
+  return (
+    <SettingsSection title="Reasoning">
+      <SettingsSwitchRow
+        icon="brain"
+        label="Show highest reasoning levels"
+        subtitle="Show Max, Ultra, Ultracode, and Ultrathink in reasoning pickers for all models on this device."
+        value={showHighestReasoningEfforts}
+        onValueChange={(value) => void savePreferences({ showHighestReasoningEfforts: value })}
+      />
+    </SettingsSection>
+  );
+}
+
 type MachineBetaSetting = "linkedEnvironmentsEnabled" | "fastWorktreeCheckout";
 
 const AGENT_FEEDBACK_CHOICES: ReadonlyArray<{
