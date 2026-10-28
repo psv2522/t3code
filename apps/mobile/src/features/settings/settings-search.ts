@@ -100,6 +100,11 @@ const SETTINGS_SEARCH_TERMS = {
     msg("last project", { $context: "settings search keyword" }),
   ],
   SettingsThreads: [
+    msg("reasoning effort", { $context: "settings search keyword" }),
+    msg("max", { $context: "settings search keyword" }),
+    "ultra",
+    "ultracode",
+    "ultrathink",
     msg("new threads", { $context: "settings search keyword" }),
     msg("default workspace", { $context: "settings search keyword" }),
     msg("default permissions", { $context: "settings search keyword" }),
