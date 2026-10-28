@@ -24,6 +24,64 @@ import * as UsageLimitSources from "./UsageLimitSources.ts";
 
 const encodeConfigEvent = Schema.encodeSync(ServerConfigStreamEvent);
 
+it.effect("reads a fresh cooldown only from the hub used by the provider", () =>
+  Effect.gen(function* () {
+    yield* TestClock.setTime(Date.parse("2030-01-01T00:00:00Z"));
+    const sources = yield* UsageLimitSources.make;
+    expect(
+      yield* sources.poolResetAt("https://different.test/v1", "claude", "claude-opus"),
+    ).toBeNull();
+    expect(yield* sources.poolResetAt("https://hub.test/v1", "claude", "claude-opus")).toBe(
+      "2030-01-01T01:00:00.000Z",
+    );
+  }).pipe(
+    Effect.provide([
+      ServerSettings.layerTest({
+        usageLimitSources: {
+          [UsageLimitSourceId.make("hub")]: {
+            kind: "cliproxy",
+            url: "https://hub.test",
+            managementKey: "test-secret",
+            enabled: true,
+          },
+        },
+      }),
+      Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+        shouldRunScopeWork: () => Effect.succeed(false),
+      }),
+      Layer.succeed(SecretResolver.SecretResolver, {
+        label: (provider) => Effect.succeed(provider),
+        read: (references) => Effect.succeed(references.map(() => undefined)),
+        invalidate: () => Effect.void,
+      }),
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json({
+                files: [
+                  {
+                    provider: "claude",
+                    id: "one",
+                    auth_index: "one",
+                    cooldowns: [
+                      { scope: "credential", reason: "quota", retry_at: "2030-01-01T01:00:00Z" },
+                    ],
+                  },
+                ],
+              }),
+            ),
+          ),
+        ),
+      ),
+      NodeCrypto.layer,
+    ]),
+    Effect.scoped,
+  ),
+);
+
 it.effect("keeps malformed source URLs encodable for config subscribers", () =>
   Effect.gen(function* () {
     const sources = yield* UsageLimitSources.make;
