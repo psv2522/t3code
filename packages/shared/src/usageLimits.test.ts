@@ -181,6 +181,34 @@ describe("pools", () => {
   };
   const laptop = { entry: { target: { label: "Laptop" } } };
 
+  it("prefers hub accounts over the local provider for the same driver", () => {
+    const native = provider({ usageLimits: { checkedAt, windows: [window] } });
+    const input = new Map([
+      [
+        EnvironmentId.make("env-a"),
+        {
+          ...laptop,
+          serverConfig: {
+            providers: [native],
+            usageLimitSources: [
+              {
+                ...source,
+                accounts: [
+                  {
+                    id: "hub-account",
+                    driver: native.driver,
+                    usageLimits: { checkedAt, windows: [window] },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    ]);
+    expect(collectLimitAccounts(input).map((account) => account.key)).toEqual(["hub:hub-account"]);
+  });
+
   it("merges one account reported natively on two environments and by a hub into one entry", () => {
     const native = provider({
       driver: claude,
