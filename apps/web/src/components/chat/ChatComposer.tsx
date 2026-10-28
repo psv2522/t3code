@@ -451,8 +451,6 @@ export interface ChatComposerProps {
   pullRequestRepository: string | null;
   threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
   onComposerOverlayHeightChange: (height: number) => void;
-  /** The new-thread strip names the permissions, so the controls row hides its chip. */
-  permissionsShownInStrip: boolean;
 
   promptRef: React.RefObject<string>;
   composerImagesRef: React.RefObject<ComposerImageAttachment[]>;
@@ -2445,7 +2443,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       handleRuntimeModeChange={handleRuntimeModeChange}
       composerControlsCollapsed={composerControlsCollapsed}
       effortDisplay={settings.effortDisplay}
-      permissionsShownInStrip={props.permissionsShownInStrip}
       composerControlsHidden={composerControlsHidden}
       restingHiddenBlockCount={restingHiddenBlockCount}
       iconOnlyBlockCount={iconOnlyBlockCount}
