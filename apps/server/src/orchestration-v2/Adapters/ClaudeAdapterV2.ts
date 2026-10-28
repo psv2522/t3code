@@ -1,4 +1,5 @@
 import * as DocumentText from "../../provider/DocumentText.ts";
+import { proxyCooldownResetAt } from "../../provider/proxyCooldown.ts";
 import {
   compactDynamicToolOutput,
   mcpToolResultOutput,
@@ -5413,7 +5414,7 @@ function providerFailureFromResult(
   // API-key sessions get no rate_limit_info, so a gateway's 429 carries its reset only as text.
   const resetAt =
     apiErrorStatus === 429 && message.result.startsWith("API Error:")
-      ? gatewayCooldownResetAt(
+      ? (gatewayCooldownResetAt(
           // CLIProxyAPI nests upstream errors in its message; only its own cooldown counts.
           message.result.startsWith(
             "API Error: Request rejected (429) · All credentials for model ",
@@ -5426,7 +5427,9 @@ function providerFailureFromResult(
                 ))
             : /\(reset after (?:(\d+)h ?)?(?:(\d+)m ?)?(?:(\d+)s)?\)/.exec(message.result),
           receivedAt,
-        )
+        ) ??
+        proxyCooldownResetAt(message.result, receivedAt) ??
+        undefined)
       : undefined;
   return makeProviderFailure({
     message: listedError ?? structuredError ?? failureHint ?? message.result,
@@ -6210,6 +6213,10 @@ export interface ClaudeAdapterV2Options {
     cwd: string | null,
     launchSettings?: ClaudeSdkSettings,
   ) => Effect.Effect<ClaudeModelCatalog>;
+  readonly usageLimitResetFallback?: (
+    baseUrl: string,
+    model: string,
+  ) => Effect.Effect<string | null>;
   readonly continuationRequests?: {
     readonly offer: (
       request: ProviderContinuationRequests.ProviderContinuationRequest,
@@ -12980,7 +12987,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               yield* emitContextUsage(context, contextUsage);
             }
             const completedAt = yield* DateTime.now;
-            const interrupted = (yield* Ref.get(interruptedTurns)).has(context.providerTurnId);
+            let interrupted = (yield* Ref.get(interruptedTurns)).has(context.providerTurnId);
             const wasSteered = (yield* Ref.get(steeredTurns)).has(context.providerTurnId);
             absorbHeldResult(context);
             if (!interrupted && wasSteered && isClaudeActiveSteeringAbortResult(message)) {
@@ -13100,10 +13107,38 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               resetTimes.length > 0 && resetTimes.every((time) => time !== null)
                 ? resetTimes.reduce((latest, time) => (time! > latest ? time! : latest), "")
                 : null;
-            const terminalFailure =
+            let terminalFailure =
               resultFailure?.class === "usage_limit"
                 ? { ...resultFailure, resetAt }
                 : resultFailure;
+            if (
+              terminalFailure?.class === "usage_limit" &&
+              terminalFailure.resetAt == null &&
+              message.subtype === "success" &&
+              message.api_error_status === 429 &&
+              /All credentials for model [^\r\n]+ are cooling down/i.test(message.result) &&
+              adapterOptions.usageLimitResetFallback
+            ) {
+              const settingsEnv = yield* readClaudeSettingsEnv(
+                adapterOptions.settings,
+                context.input.runtimePolicy.cwd ?? undefined,
+                adapterOptions.environment,
+              ).pipe(
+                Effect.provideService(FileSystem.FileSystem, fileSystem),
+                Effect.provideService(Path.Path, path),
+              );
+              const baseUrl =
+                settingsEnv.ANTHROPIC_BASE_URL ?? adapterOptions.environment.ANTHROPIC_BASE_URL;
+              if (baseUrl) {
+                const retryAt = yield* adapterOptions.usageLimitResetFallback(
+                  baseUrl,
+                  compileClaudeModelSelection(context.input.modelSelection, modelCatalog)
+                    .apiModelId,
+                );
+                terminalFailure = { ...terminalFailure, resetAt: retryAt };
+              }
+              interrupted ||= (yield* Ref.get(interruptedTurns)).has(context.providerTurnId);
+            }
             const status = interrupted
               ? "interrupted"
               : limitedCompaction !== null
@@ -13137,7 +13172,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               status,
               completedAt,
               result: message,
-              ...(terminalFailure === null ? {} : { failure: terminalFailure }),
+              ...(interrupted || terminalFailure === null ? {} : { failure: terminalFailure }),
             });
           }
         });
@@ -16150,7 +16185,12 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     input: ProviderAdapterDriverCreateInput<ClaudeSettings>,
     hooks: Pick<
       ClaudeAdapterV2Options,
-      "scopedLimitNames" | "onUsageLimits" | "onSessionInit" | "modelCatalog" | "routeModelCatalog"
+      | "scopedLimitNames"
+      | "onUsageLimits"
+      | "onSessionInit"
+      | "modelCatalog"
+      | "routeModelCatalog"
+      | "usageLimitResetFallback"
     > = {},
   ) {
     const { instanceId, environment, enabled, config } = input;

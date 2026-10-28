@@ -19,7 +19,6 @@ import {
   withUsageLimitsCommands,
   collectLimitAccounts,
   findProviderLimitAccount,
-  providersCoveredByUsageSources,
   collectExternalUsageLinks,
   collectLimitPools,
   elapsedShare,
@@ -238,6 +237,36 @@ describe("pools", () => {
     checkedAt,
   };
   const laptop = { entry: { target: { label: "Laptop" } } };
+
+  it("prefers hub accounts over the local provider for the same driver", () => {
+    const native = provider({ usageLimits: { checkedAt, windows: [window] } });
+    const input = new Map([
+      [
+        EnvironmentId.make("env-a"),
+        {
+          ...laptop,
+          serverConfig: {
+            providers: [native],
+            usageLimitSources: [
+              {
+                ...source,
+                accounts: [
+                  {
+                    id: "hub-account",
+                    driver: native.driver,
+                    usageLimits: { checkedAt, windows: [window] },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    ]);
+    expect(collectLimitAccounts(input).map((account) => account.key)).toEqual([
+      "env-a:hub:hub-account",
+    ]);
+  });
 
   it("merges one account reported natively on two environments and by a hub into one entry", () => {
     const native = provider({
@@ -487,24 +516,6 @@ describe("pools", () => {
     expect(
       findProviderLimitAccount(input, EnvironmentId.make("env-a"), native.instanceId)?.limits,
     ).toEqual(account?.limits);
-    expect(
-      providersCoveredByUsageSources(
-        [native],
-        input.get(EnvironmentId.make("env-a"))!.serverConfig.usageLimitSources ?? [],
-        Date.parse("2026-09-03T11:31:00Z"),
-      ),
-    ).toEqual(new Set([native.instanceId]));
-    const hub = input.get(EnvironmentId.make("env-a"))!.serverConfig.usageLimitSources;
-    expect(
-      providersCoveredByUsageSources([native], hub, Date.parse("2026-09-03T11:36:00Z")),
-    ).toEqual(new Set());
-    expect(
-      providersCoveredByUsageSources(
-        [native],
-        [{ ...hub[0]!, error: "unavailable" }],
-        Date.parse("2026-09-03T11:31:00Z"),
-      ),
-    ).toEqual(new Set());
     expect(account?.limits.resetCredits?.availableCount).toBe(2);
     expect(account?.redeem).toEqual({ environmentId: "env-a", input: { instanceId: "claude" } });
     expect(account?.environments).toEqual([{ environmentId: "env-a", label: "Laptop" }]);
@@ -691,13 +702,6 @@ describe("pools", () => {
       "env-a:hub:x.json",
     ]);
     expect(accounts[0]?.limits.windows[0]?.usedPercent).toBe(8);
-    expect(
-      providersCoveredByUsageSources(
-        input.get(EnvironmentId.make("env-a"))!.serverConfig.providers,
-        input.get(EnvironmentId.make("env-a"))!.serverConfig.usageLimitSources ?? [],
-        Date.parse(checkedAt),
-      ),
-    ).toEqual(new Set([ProviderInstanceId.make("personal")]));
     expect(
       findProviderLimitAccount(
         input,
