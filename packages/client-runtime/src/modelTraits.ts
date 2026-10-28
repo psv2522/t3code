@@ -51,10 +51,17 @@ export function getDescriptorStringValue(
   return typeof value === "string" ? value : null;
 }
 
+export function modelEffortPreferenceKey(instanceId: string, model: string) {
+  return JSON.stringify([instanceId, model]);
+}
+
 export function selectableProviderOptionChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
+  disabledEfforts: ReadonlyArray<string> = [],
 ) {
-  return descriptor.options;
+  return REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
+    ? descriptor.options.filter((option) => !disabledEfforts.includes(option.id))
+    : descriptor.options;
 }
 
 export function getPromptControlledTraits(

@@ -1,4 +1,6 @@
+import { getClientSettings, useClientSettings } from "../../hooks/useSettings";
 import {
+  modelEffortPreferenceKey,
   buildTraitsTriggerDisplay,
   getDescriptorStringValue,
   getTraitSelectChange,
@@ -271,7 +273,13 @@ export function getReasoningTraitStep(input: {
           { instanceId: input.instanceId, model: input.model, options: input.modelOptions ?? [] },
           input.reportedModelSelection,
         );
-  const ordered = input.direction > 0 ? descriptor.options : descriptor.options.toReversed();
+  const choices = selectableProviderOptionChoices(
+    descriptor,
+    getClientSettings().disabledModelEfforts[
+      modelEffortPreferenceKey(input.instanceId, input.model)
+    ],
+  );
+  const ordered = input.direction > 0 ? choices : choices.toReversed();
   const position =
     [current, getDescriptorStringValue(descriptor)]
       .map((value) => ordered.findIndex((option) => option.id === value))
@@ -343,6 +351,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   isComposerOwned = false,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
+  const disabledEfforts = useClientSettings((settings) =>
+    instanceId && model
+      ? settings.disabledModelEfforts[modelEffortPreferenceKey(instanceId, model)]
+      : undefined,
+  );
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -458,7 +471,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
-                {selectableProviderOptionChoices(descriptor).map((option) => (
+                {selectableProviderOptionChoices(descriptor, disabledEfforts).map((option) => (
                   <MenuRadioItem
                     key={option.id}
                     value={option.id}
@@ -738,7 +751,7 @@ export const TraitsPicker = memo(function TraitsPicker({
         <TooltipPopup side="top">{triggerDescription}</TooltipPopup>
       </Tooltip>
       <MenuPopup
-        align={isComposerOwned ? "end" : "start"}
+        align={isComposerOwned ? "center" : "start"}
         {...(isComposerOwned ? composerFloatingLayerProps : {})}
       >
         {extraMenuContent ? (

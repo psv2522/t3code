@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { ChatComposerProps } from "./ChatComposer";
 import type { PromptUltrathink } from "./TraitsPicker";
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -6,7 +7,6 @@ import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl } from "./ComposerControl";
 import {
-  ComposerPermissionsSection,
   ComposerFooterModeControls,
   ComposerModelPicker,
   type RuntimeModeOption,
@@ -163,14 +163,6 @@ export function ComposerControlsBar(props: {
     isComposerOwned: true,
     effortDisplay: props.effortDisplay,
     triggerClassName: cn("ps-1.5 pe-1", TEXT_CONTROL_STATES),
-    // Permissions always live in the effort menu, so the section never unmounts while open.
-    extraMenuContent: (
-      <ComposerPermissionsSection
-        runtimeMode={compatibleRuntimeMode}
-        runtimeModeOptions={compatibleRuntimeModeOptions}
-        onRuntimeModeChange={handleRuntimeModeChange}
-      />
-    ),
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const {
@@ -178,30 +170,17 @@ export function ComposerControlsBar(props: {
     hiddenBlockCount: restingHiddenBlockCount,
     hiddenBlockIds: hiddenRestingBlockIds,
     traitsHidden: traitsBlockHidden,
-    effortOwnsModeShortcut,
     overflowShowsPermissions,
   } = resolveComposerControlsOwnership({
-    matchesDefault: false,
     hasTraits: providerTraitsPicker !== null,
-    planModeUiEnabled,
-    collapsed: composerControlsCollapsed,
     measuredHiddenBlockCount,
   });
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
     ...providerTraitsPickerInput,
     size: composerControlsCollapsed ? "xs" : "sm",
     hidden: composerControlsHidden || traitsBlockHidden,
-    extraMenuOwnsModeShortcut: effortOwnsModeShortcut,
   });
   const restingBlockDefs = [
-    ...(providerTraitsPicker
-      ? [
-          {
-            id: "traits",
-            content: restingProviderTraitsPicker,
-          },
-        ]
-      : []),
     ...(!showModeBlock
       ? []
       : [
@@ -214,7 +193,7 @@ export function ComposerControlsBar(props: {
                 runtimeMode={compatibleRuntimeMode}
                 runtimeModeOptions={compatibleRuntimeModeOptions}
                 size={composerControlsCollapsed ? "xs" : "sm"}
-                hidden={composerControlsHidden || restingHiddenBlockCount > 0}
+                hidden={composerControlsHidden || hiddenRestingBlockIds.includes("mode")}
                 accessDisplay="label"
                 emphasized={!accessMatchesDefault}
                 onToggleInteractionMode={toggleInteractionMode}
@@ -223,6 +202,14 @@ export function ComposerControlsBar(props: {
             ),
           },
         ]),
+    ...(providerTraitsPicker
+      ? [
+          {
+            id: "traits",
+            content: restingProviderTraitsPicker,
+          },
+        ]
+      : []),
   ];
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const composerModelPicker = (
@@ -289,29 +276,30 @@ export function ComposerControlsBar(props: {
     </ComposerControl>
   ) : (
     <>
-      {composerModelPicker}
-
       <>
         {restingBlockDefs.map((def, index) => {
           const hidden = index >= restingBlockDefs.length - restingHiddenBlockCount;
           return (
-            <div
-              key={def.id}
-              data-resting-block={def.id}
-              data-composer-block-icon-only={
-                index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
-              }
-              aria-hidden={hidden || undefined}
-              inert={hidden || undefined}
-              className={cn(
-                "flex w-max min-w-max shrink-0 items-center gap-1",
-                hidden && "pointer-events-none invisible absolute",
-                index >= restingBlockDefs.length - iconOnlyBlockCount &&
-                  "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
-              )}
-            >
-              {def.content}
-            </div>
+            <Fragment key={def.id}>
+              {def.id === "traits" ? composerModelPicker : null}
+              <div
+                data-resting-block={def.id}
+                data-composer-block-icon-only={
+                  index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
+                }
+                aria-hidden={hidden || undefined}
+                inert={hidden || undefined}
+                className={cn(
+                  "flex w-max min-w-max shrink-0 items-center gap-1",
+                  hidden && "pointer-events-none invisible absolute",
+                  index >= restingBlockDefs.length - iconOnlyBlockCount &&
+                    "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
+                )}
+              >
+                {def.content}
+              </div>
+              {def.id === "mode" && !providerTraitsPicker ? composerModelPicker : null}
+            </Fragment>
           );
         })}
         <div

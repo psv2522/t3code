@@ -1,3 +1,9 @@
+import {
+  REASONING_SELECT_DESCRIPTOR_IDS,
+  modelEffortPreferenceKey,
+  selectableProviderOptionChoices,
+} from "@t3tools/client-runtime/model-traits";
+import { persistClientSettingsUpdate, useClientSettings } from "../../hooks/useSettings";
 import { ArrowDownIcon, ArrowUpIcon, PencilIcon, PlusIcon, StarIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -126,6 +132,7 @@ export function ProviderModelsSection({
   onToggleFavorite,
   onModelOrderChange,
 }: ProviderModelsSectionProps) {
+  const disabledModelEfforts = useClientSettings((settings) => settings.disabledModelEfforts);
   const [input, setInput] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [filter, setFilter] = useState("");
@@ -343,6 +350,9 @@ export function ProviderModelsSection({
           </Button>
         ) : null}
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Effort switches are saved on this client.
+      </p>
       <div
         ref={listRef}
         className="mt-2 -mx-2 max-h-64 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1"
@@ -372,6 +382,44 @@ export function ProviderModelsSection({
                 ? groupLabel("Hidden from picker", index === 0)
                 : null}
               {renderRow(model)}
+              {model.capabilities?.optionDescriptors?.flatMap((descriptor) =>
+                descriptor.type !== "select" || !REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
+                  ? []
+                  : selectableProviderOptionChoices(descriptor)
+                      .filter((option) => option.id === "max" || option.id === "ultra")
+                      .map((option) => {
+                        const key = modelEffortPreferenceKey(instanceId, model.slug);
+                        const level = option.id === "max" ? ("max" as const) : ("ultra" as const);
+                        return (
+                          <label
+                            key={`${descriptor.id}:${level}`}
+                            className="flex items-center justify-between gap-2 px-10 py-1 text-xs"
+                          >
+                            {option.label} effort
+                            <Switch
+                              size="sm"
+                              checked={!disabledModelEfforts[key]?.includes(level)}
+                              aria-label={`Enable ${option.label} effort for ${model.name}`}
+                              onCheckedChange={(checked) => {
+                                void persistClientSettingsUpdate((current) => {
+                                  const disabled = current.disabledModelEfforts[key] ?? [];
+                                  return {
+                                    ...current,
+                                    disabledModelEfforts: {
+                                      ...current.disabledModelEfforts,
+                                      [key]: checked
+                                        ? disabled.filter((value) => value !== level)
+                                        : [...new Set([...disabled, level])],
+                                    },
+                                  };
+                                });
+                              }}
+                            />
+                          </label>
+                        );
+                      }),
+              )}
+
               {editingEntry ? (
                 <CustomModelEditor
                   key={`${instanceId}:${model.slug}:editor`}
