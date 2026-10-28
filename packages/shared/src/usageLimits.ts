@@ -316,7 +316,15 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
   );
   for (const [environmentId, presentation] of presentations) {
     const label = presentation.entry.target.label;
+    const hubDrivers = new Set(
+      (presentation.serverConfig?.usageLimitSources ?? []).flatMap((source) =>
+        source.accounts
+          .filter((account) => limitsNotice(account.usageLimits) === null)
+          .map((account) => account.driver),
+      ),
+    );
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
+      if (hubDrivers.has(provider.driver) && !resolveKey(nativeReport(provider))) continue;
       if (!provider.usageLimits || limitsNotice(provider.usageLimits) !== null) continue;
       merge(resolveKey(nativeReport(provider)) ?? `${environmentId}:${provider.instanceId}`, {
         key: `${environmentId}:${provider.instanceId}`,
