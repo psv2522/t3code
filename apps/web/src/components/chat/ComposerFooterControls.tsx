@@ -5,7 +5,7 @@ import { type ComponentProps, memo, useId, useRef, useState } from "react";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
+import { ComposerControl } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
@@ -40,8 +40,6 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
   const runtimeModeOption =
     props.runtimeModeOptions.find((option) => option.mode === props.runtimeMode) ??
     supervisedRuntimeModeOption;
-  const RuntimeModeIcon = runtimeModeOption.icon;
-  // The chip opens the same Permissions toggle used in the model picker and the overflow menu.
   const permissionsTooltip = `Permissions: ${runtimeModeOption.label}. ${runtimeModeOption.description}`;
   const permissionsChip = (
     <Menu
@@ -61,19 +59,13 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
                   data-composer-shortcut="composer.mode"
                   size={size}
                   // Mirrors the model trigger's trailing pe-1 so the gaps on both sides of the chip match.
-                  className="ps-1.5"
+                  className="ps-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-transparent data-pressed:text-foreground data-popup-open:bg-transparent data-popup-open:text-foreground"
                   aria-label={`Permissions: ${runtimeModeOption.label}`}
                 />
               }
             />
           }
         >
-          <ComposerControlIcon
-            icon={RuntimeModeIcon}
-            size={size}
-            // Match the label, not full foreground: the chip's presence already marks the mode.
-            {...(props.emphasized ? { className: "text-current" } : {})}
-          />
           <span
             data-composer-control-label
             className={accessDisplay === "icon" ? "sr-only" : undefined}
@@ -83,7 +75,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
         </TooltipTrigger>
         <TooltipPopup side="top">{permissionsTooltip}</TooltipPopup>
       </Tooltip>
-      <MenuPopup align="start" {...composerFloatingLayerProps}>
+      <MenuPopup align="center" {...composerFloatingLayerProps}>
         <ComposerPermissionsSection
           runtimeMode={props.runtimeMode}
           runtimeModeOptions={props.runtimeModeOptions}
@@ -97,7 +89,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
 });
 
 /**
- * Permission modes as one horizontal toggle, with the shown mode named below.
+ * Permission modes as one horizontal toggle, with the shown mode named above.
  * Each segment is a real menu radio item, so arrow keys reach it from the rest of the menu
  * and a pick closes the menu. Lives inside a Menu: the permissions chip, the model picker,
  * or the overflow menu.
@@ -117,6 +109,21 @@ export function ComposerPermissionsSection(props: {
   return (
     <div data-composer-permissions className="grid w-72 gap-1.5 px-2 py-1.5">
       <div className="font-medium text-muted-foreground text-xs">Permissions</div>
+      <div className="grid gap-0.5" aria-hidden="true">
+        <span
+          className={
+            shownMode === props.runtimeMode
+              ? "text-foreground text-sm"
+              : "text-muted-foreground text-sm"
+          }
+        >
+          {shown.label}
+        </span>
+        {/* Two lines reserved so the menu does not shift while you preview modes. */}
+        <span className="min-h-8 text-muted-foreground text-xs leading-4">
+          {shown.disabledReason ?? shown.description}
+        </span>
+      </div>
       <MenuPrimitive.RadioGroup
         aria-label="Permissions"
         value={props.runtimeMode}
@@ -160,27 +167,12 @@ export function ComposerPermissionsSection(props: {
           );
         })}
       </MenuPrimitive.RadioGroup>
-      {/* Static per-mode descriptions for screen readers; the preview below is visual only. */}
+      {/* Static per-mode descriptions for screen readers; the preview above is visual only. */}
       {props.runtimeModeOptions.map((option) => (
         <span key={option.mode} id={`${descriptionId}-${option.mode}`} className="sr-only">
           {option.disabledReason ?? option.description}
         </span>
       ))}
-      <div className="grid gap-0.5" aria-hidden="true">
-        <span
-          className={
-            shownMode === props.runtimeMode
-              ? "text-foreground text-sm"
-              : "text-muted-foreground text-sm"
-          }
-        >
-          {shown.label}
-        </span>
-        {/* Two lines reserved so the menu does not shift while you preview modes. */}
-        <span className="min-h-8 text-muted-foreground text-xs leading-4">
-          {shown.disabledReason ?? shown.description}
-        </span>
-      </div>
     </div>
   );
 }

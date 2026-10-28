@@ -1846,6 +1846,12 @@ html[data-main-background]
   background-color: transparent;
 }
 
+[data-draft-hero] [data-slot="composer-shell"] {
+  --glass-opacity: 100%;
+  --glass-blur: 0px;
+  --glass-saturation: 1;
+}
+
 pre,
 code {
   font-family: var(--font-mono);

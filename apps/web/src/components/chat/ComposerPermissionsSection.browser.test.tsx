@@ -5,16 +5,13 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../../test/render";
 import { ComposerHandleContext, type ComposerHandleRef } from "../../composerHandleContext";
-import { ComposerContextPermissions } from "../ComposerContextPermissions";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
   focusRequestedPermission,
   markOpenToPermissions,
   useComposerMenuProps,
 } from "./composerEventScope";
 import { ComposerFooterModeControls, ComposerPermissionsSection } from "./ComposerFooterControls";
-import { ComposerPickerFooter } from "./ComposerModelEffort";
 import { runtimeModeConfig, runtimeModeOptions } from "./runtimeModeConfig";
 
 const options = runtimeModeOptions.map((mode) => ({ mode, ...runtimeModeConfig[mode] }));
@@ -97,49 +94,6 @@ it("returns focus to the editor after a pick", async () => {
   await vi.waitFor(() => expect(handle.focusAtEnd).toHaveBeenCalled());
 });
 
-// Mirrors the model picker: a composer popover whose footer nests the Permissions menu.
-function PickerWithPermissions() {
-  const [mode, setMode] = useState<RuntimeMode>("full-access");
-  const composerMenuProps = useComposerMenuProps();
-  return (
-    <>
-      <p>Timeline</p>
-      <Popover>
-        <PopoverTrigger>Model</PopoverTrigger>
-        <PopoverPopup {...composerMenuProps}>
-          <ComposerPickerFooter
-            traits={null}
-            runtimeMode={mode}
-            runtimeModeOptions={options}
-            onRuntimeModeChange={setMode}
-          />
-        </PopoverPopup>
-      </Popover>
-    </>
-  );
-}
-
-it("on a touch tablet, tapping outside the Permissions menu leaves the editor unfocused", async () => {
-  const realMatchMedia = window.matchMedia.bind(window);
-  using _touch = vi
-    .spyOn(window, "matchMedia")
-    .mockImplementation((query) => realMatchMedia(query === "(pointer: coarse)" ? "all" : query));
-  const { handle, ui } = withComposer(<PickerWithPermissions />);
-  await using screen = await render(ui, { router: false }); // no routes involved
-  await userEvent.click(screen.getByRole("button", { name: "Model" }));
-  await userEvent.click(page.getByRole("button", { name: "Permissions: Full access" }));
-  const fullAccess = page.getByRole("menuitemradio", { name: "Full access" });
-  await expect.element(fullAccess).toBeInTheDocument();
-  const permissionsTrigger = page.getByRole("button", { name: "Permissions: Full access" });
-  // The first outside tap closes the Permissions menu, the second the picker around it.
-  await userEvent.click(document.body, { position: { x: 1, y: 1 } });
-  await expect.element(fullAccess).not.toBeInTheDocument();
-  await userEvent.click(screen.getByText("Timeline"));
-  await expect.element(permissionsTrigger).not.toBeInTheDocument();
-  // Focusing the editor after a tap opens the on-screen keyboard on Android tablets.
-  expect(handle.focusAtEnd).not.toHaveBeenCalled();
-});
-
 it("opens on the checked permission when composer.mode marked the trigger", async () => {
   await using screen = await render(<OverflowMenu />, { router: false }); // no routes involved
   const trigger = screen.getByRole("button", { name: "More" });
@@ -180,39 +134,4 @@ it("returns focus to the editor when picking the default hides the chip", async 
   await userEvent.click(page.getByRole("menuitemradio", { name: "Full access" }));
   await vi.waitFor(() => expect(handle.focusAtEnd).toHaveBeenCalled());
   await expect.element(screen.getByRole("button", { name: "Model" })).not.toHaveFocus();
-});
-
-function ContextPermissions() {
-  const [mode, setMode] = useState<RuntimeMode>("full-access");
-  return (
-    <ComposerContextPermissions
-      environmentId={null}
-      runtimeMode={mode}
-      supportedRuntimeModes={["approval-required", "full-access"]}
-      onRuntimeModeChange={setMode}
-    />
-  );
-}
-
-it("opens permissions directly from the context strip and applies a supported mode", async () => {
-  await using screen = await render(<ContextPermissions />, { router: false }); // no routes involved
-  await userEvent.click(screen.getByRole("button", { name: "Permissions: Full access" }));
-  await expect
-    .element(page.getByRole("menuitemradio", { name: "Full access" }))
-    .toHaveAttribute("aria-checked", "true");
-  await expect
-    .element(page.getByRole("menuitemradio", { name: "Auto", exact: true }))
-    .not.toBeInTheDocument();
-  await userEvent.click(page.getByRole("menuitemradio", { name: "Supervised" }));
-  const trigger = screen.getByRole("button", { name: "Permissions: Supervised" });
-  await expect.element(trigger).toBeVisible();
-  await expect
-    .element(page.getByRole("menuitemradio", { name: "Supervised" }))
-    .not.toBeInTheDocument();
-  await userEvent.click(trigger);
-  await expect
-    .element(page.getByRole("menuitemradio", { name: "Supervised" }))
-    .toHaveAttribute("aria-checked", "true");
-  await userEvent.keyboard("{Escape}");
-  await expect.element(trigger).toHaveFocus();
 });

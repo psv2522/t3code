@@ -1607,7 +1607,7 @@ function ComposerPromptEditorTiptapInner(
       end: normalizedExpandedCursor,
     };
     setIsEmpty(value.length === 0);
-    const rootElement = editor.view.dom;
+    const rootElement = editor.isDestroyed ? null : editor.view.dom;
     const isFocused = Boolean(rootElement && document.activeElement === rootElement);
     if (!initialSelection && previousSnapshot.value === value && !isFocused) return;
 

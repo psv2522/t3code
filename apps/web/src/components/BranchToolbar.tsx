@@ -300,7 +300,7 @@ const RunContextSelector = memo(function RunContextSelector({
       </MenuTrigger>
       <MenuPopup
         align="start"
-        side={isPanel ? "bottom" : "top"}
+        side="bottom"
         className={
           isPanel
             ? "w-(--anchor-width)"
@@ -732,7 +732,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     <ComposerSurface.ContextStrip
       ref={attachStrip}
       data-compact={labelsOverflow ? "" : undefined}
-      className={cn("gap-1 text-xs font-normal text-foreground/70 dark:text-muted-foreground")}
+      className="gap-1 font-normal text-xs"
     >
       {showGitControls ? (
         <div className="contents @xl/composer-surface:hidden">

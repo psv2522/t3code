@@ -58,13 +58,38 @@ export function getDescriptorStringValue(
   return typeof value === "string" ? value : null;
 }
 
+const HIGHEST_REASONING_EFFORTS: ReadonlySet<string> = new Set([
+  "max",
+  "ultra",
+  "ultracode",
+  "ultrathink",
+]);
+
 // Prompt-injected levels such as Ultrathink still work when typed, but pickers do not offer them.
 export function selectableProviderOptionChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
+  showHighestReasoningEfforts = true,
 ) {
   return descriptor.options.filter(
-    (option) => !descriptor.promptInjectedValues?.includes(option.id),
+    (option) =>
+      !descriptor.promptInjectedValues?.includes(option.id) &&
+      !(
+        !showHighestReasoningEfforts &&
+        isReasoningSelect(descriptor) &&
+        HIGHEST_REASONING_EFFORTS.has(option.id)
+      ),
   );
+}
+
+// An Ultracode that is already on stays listed so it can still be turned off.
+export function selectableProviderOptionToggles<
+  T extends { readonly id: string; readonly currentValue?: unknown },
+>(descriptors: ReadonlyArray<T>, showHighestReasoningEfforts = true) {
+  return showHighestReasoningEfforts
+    ? descriptors
+    : descriptors.filter(
+        (descriptor) => descriptor.id !== "ultracode" || descriptor.currentValue === true,
+      );
 }
 
 export function getPromptControlledTraits(
