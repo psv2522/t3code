@@ -458,27 +458,36 @@ export function collectLimitPools(
     if (list) list.push(account);
     else byDriver.set(account.driver, [account]);
   }
-  return [...byDriver].map(([driver, members]) => {
-    const orderWindow = members
-      .flatMap((account) => account.limits.windows)
-      .sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind])[0];
-    const orderReset = (account: LimitAccount) => {
-      const window = account.limits.windows.find(
-        (window) => orderWindow && poolKey(driver, window) === poolKey(driver, orderWindow),
+  const preferredDrivers = ["claudeAgent", "codex", "opencode"];
+  return [...byDriver]
+    .sort(([left], [right]) => {
+      const rank = (driver: string) => {
+        const index = preferredDrivers.indexOf(driver);
+        return index === -1 ? preferredDrivers.length : index;
+      };
+      return rank(left) - rank(right);
+    })
+    .map(([driver, members]) => {
+      const orderWindow = members
+        .flatMap((account) => account.limits.windows)
+        .sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind])[0];
+      const orderReset = (account: LimitAccount) => {
+        const window = account.limits.windows.find(
+          (window) => orderWindow && poolKey(driver, window) === poolKey(driver, orderWindow),
+        );
+        return (
+          (window ? resetMillis(poolMember(account, window, now).window) : null) ??
+          Number.POSITIVE_INFINITY
+        );
+      };
+      const sorted = [...members].sort(
+        (left, right) =>
+          orderReset(left) - orderReset(right) ||
+          accountSortName(left).localeCompare(accountSortName(right)) ||
+          left.key.localeCompare(right.key),
       );
-      return (
-        (window ? resetMillis(poolMember(account, window, now).window) : null) ??
-        Number.POSITIVE_INFINITY
-      );
-    };
-    const sorted = [...members].sort(
-      (left, right) =>
-        orderReset(left) - orderReset(right) ||
-        accountSortName(left).localeCompare(accountSortName(right)) ||
-        left.key.localeCompare(right.key),
-    );
-    return { driver, accounts: sorted, windows: poolWindows(sorted, now) };
-  });
+      return { driver, accounts: sorted, windows: poolWindows(sorted, now) };
+    });
 }
 
 function accountSortName(account: LimitAccount): string {
