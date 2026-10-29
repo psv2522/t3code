@@ -1,8 +1,9 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 const DATABASE_NAME = "t3code:main-background";
 const STORE_NAME = "images";
 const IMAGE_KEY = "current";
+const CACHE_KEY = "rendered-v1";
 const OPACITY_STORAGE_KEY = "t3code:main-background-opacity";
 const CHANNEL_NAME = "t3code:main-background";
 const SOURCE_MAX_EDGE = 2560;
@@ -19,6 +20,13 @@ const BAYER_8 = [
   52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7,
   39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
 ];
+
+interface CachedBackground {
+  readonly sourceBytes: Uint8Array;
+  readonly blob: Blob;
+  readonly width: number;
+  readonly height: number;
+}
 
 interface RenderedBackground {
   readonly url: string;
@@ -111,11 +119,43 @@ async function shrinkSource(file: Blob) {
   }
 }
 
+async function decodeBackground(cached: CachedBackground): Promise<RenderedBackground> {
+  const url = URL.createObjectURL(cached.blob);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    return { url, width: cached.width, height: cached.height };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
+}
+
 async function renderBackground(source: Blob): Promise<RenderedBackground> {
+  const width = Math.ceil(Math.max(window.screen.width, window.innerWidth) / CELL_SIZE) * CELL_SIZE;
+  const height =
+    Math.ceil(Math.max(window.screen.height, window.innerHeight) / CELL_SIZE) * CELL_SIZE;
+  const sourceBytes = new Uint8Array(await source.arrayBuffer());
+  const cached = await withStore<CachedBackground | undefined>("readonly", (store) =>
+    store.get(CACHE_KEY),
+  ).catch(() => undefined);
+  if (
+    cached?.width === width &&
+    cached.height === height &&
+    cached.sourceBytes?.length === sourceBytes.length &&
+    sourceBytes.every((byte, index) => byte === cached.sourceBytes[index])
+  ) {
+    try {
+      return await decodeBackground(cached);
+    } catch {
+      // A damaged cached image can be rebuilt from the original.
+    }
+  }
   const bitmap = await createImageBitmap(source);
   try {
-    const columns = Math.ceil(Math.max(window.screen.width, window.innerWidth) / CELL_SIZE);
-    const rows = Math.ceil(Math.max(window.screen.height, window.innerHeight) / CELL_SIZE);
+    const columns = width / CELL_SIZE;
+    const rows = height / CELL_SIZE;
     const canvas = document.createElement("canvas");
     canvas.width = columns;
     canvas.height = rows;
@@ -134,20 +174,10 @@ async function renderBackground(source: Blob): Promise<RenderedBackground> {
     ditherPixels(image.data, columns);
     context.putImageData(image, 0, 0);
     const blob = await canvasToBlob(canvas, "image/png");
-    const url = URL.createObjectURL(blob);
-    try {
-      const image = new Image();
-      image.src = url;
-      await image.decode();
-    } catch (error) {
-      URL.revokeObjectURL(url);
-      throw error;
-    }
-    return {
-      url,
-      width: columns * CELL_SIZE,
-      height: rows * CELL_SIZE,
-    };
+    const next = { sourceBytes, blob, width, height };
+    const rendered = await decodeBackground(next);
+    await withStore("readwrite", (store) => store.put(next, CACHE_KEY)).catch(() => undefined);
+    return rendered;
   } finally {
     bitmap.close();
   }
@@ -214,7 +244,10 @@ export async function setMainBackgroundImage(file: Blob) {
 
 export async function clearMainBackgroundImage() {
   await show(undefined);
-  await withStore("readwrite", (store) => store.delete(IMAGE_KEY));
+  await withStore("readwrite", (store) => {
+    store.delete(IMAGE_KEY);
+    store.delete(CACHE_KEY);
+  });
   broadcast();
 }
 
@@ -262,4 +295,31 @@ function subscribe(listener: () => void) {
 
 export function useMainBackground() {
   return useSyncExternalStore(subscribe, () => state);
+}
+
+export function MainBackgroundStartup() {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts external image storage and window subscriptions after the first React commit
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    const load = () => {
+      void startMainBackground()
+        .then((dispose) => {
+          if (disposed) dispose();
+          else stop = dispose;
+        })
+        .catch((error: unknown) => console.error("Background loading failed", error));
+    };
+    const idle = typeof window.requestIdleCallback === "function";
+    const task = idle
+      ? window.requestIdleCallback(load, { timeout: 1000 })
+      : window.setTimeout(load, 0);
+    return () => {
+      disposed = true;
+      if (idle) window.cancelIdleCallback(task);
+      else window.clearTimeout(task);
+      stop?.();
+    };
+  }, []);
+  return null;
 }

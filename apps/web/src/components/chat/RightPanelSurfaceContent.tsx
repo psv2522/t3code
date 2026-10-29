@@ -18,10 +18,18 @@ import {
   type PersistentThreadTerminalPanelProps,
 } from "../PersistentThreadTerminals";
 import { pullRequestPanelContext } from "../pullRequest/pullRequestDetail.logic";
-import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
+const PullRequestDetailPanel = lazy(() =>
+  import("../pullRequest/PullRequestDetailPanel").then((module) => ({
+    default: module.PullRequestDetailPanel,
+  })),
+);
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
-import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+const ThreadPullRequestsPanel = lazy(() =>
+  import("../pullRequest/ThreadPullRequestsPanel").then((module) => ({
+    default: module.ThreadPullRequestsPanel,
+  })),
+);
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -76,8 +84,19 @@ export function RightPanelSurfaceContent(props: {
   readonly pullRequest: RightPanelPullRequestProps;
   readonly files: RightPanelFileProps;
 }) {
-  const { surface, threadRef, visible } = props;
+  const { surface } = props;
   if (surface === null) return null;
+  return (
+    <Suspense fallback={null}>
+      <SurfaceContent {...props} surface={surface} />
+    </Suspense>
+  );
+}
+
+function SurfaceContent(
+  props: Parameters<typeof RightPanelSurfaceContent>[0] & { surface: RightPanelSurface },
+) {
+  const { surface, threadRef, visible } = props;
   switch (surface.kind) {
     case "preview":
       return (
