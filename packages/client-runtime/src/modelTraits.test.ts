@@ -1,23 +1,33 @@
 import { expect, it } from "vite-plus/test";
-import { modelEffortPreferenceKey, selectableProviderOptionChoices } from "./modelTraits.ts";
+import { selectableProviderOptionChoices } from "./modelTraits.ts";
 
-it("filters disabled reasoning levels without hiding unrelated model options", () => {
+it("toggles the highest reasoning levels together without hiding unrelated model options", () => {
   const descriptor = {
     id: "reasoningEffort",
     label: "Reasoning",
     type: "select" as const,
-    options: ["high", "max", "ultra"].map((id) => ({ id, label: id })),
+    options: ["high", "xhigh", "max", "ultra", "ultracode", "ultrathink"].map((id) => ({
+      id,
+      label: id,
+    })),
   };
-  expect(
-    selectableProviderOptionChoices(descriptor, ["max", "ultra"]).map((option) => option.id),
-  ).toEqual(["high"]);
-  expect(selectableProviderOptionChoices(descriptor).map((option) => option.id)).toEqual([
-    "high",
-    "max",
-    "ultra",
-  ]);
-  expect(
-    selectableProviderOptionChoices({ ...descriptor, id: "serviceTier" }, ["max", "ultra"]),
-  ).toEqual(descriptor.options);
-  expect(modelEffortPreferenceKey("a/b", "c")).not.toBe(modelEffortPreferenceKey("a", "b/c"));
+  for (const id of [
+    "reasoningEffort",
+    "effort",
+    "reasoning",
+    "variant",
+    "reasoning_effort",
+    "thinking",
+  ]) {
+    expect(
+      selectableProviderOptionChoices({ ...descriptor, id }, false).map((option) => option.id),
+    ).toEqual(["high", "xhigh"]);
+    expect(selectableProviderOptionChoices({ ...descriptor, id }, true)).toEqual(
+      descriptor.options,
+    );
+  }
+  expect(selectableProviderOptionChoices(descriptor)).toEqual(descriptor.options);
+  expect(selectableProviderOptionChoices({ ...descriptor, id: "serviceTier" }, false)).toEqual(
+    descriptor.options,
+  );
 });

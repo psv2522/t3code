@@ -2,7 +2,6 @@ import {
   buildTraitsTriggerDisplay,
   getDescriptorStringValue,
   getTraitSelectChange,
-  modelEffortPreferenceKey,
   replaceDescriptorCurrentValue,
   selectableProviderOptionChoices,
   isReasoningSelect,
@@ -258,12 +257,7 @@ export function getReasoningTraitStep(input: {
   if (selected.modelIsUnavailable || selected.ultrathinkInBodyText) return null;
   const descriptor = selected.selectDescriptors.find(isReasoningSelect);
   const choices = descriptor
-    ? selectableProviderOptionChoices(
-        descriptor,
-        getClientSettings().disabledModelEfforts[
-          modelEffortPreferenceKey(input.instanceId, input.model)
-        ],
-      )
+    ? selectableProviderOptionChoices(descriptor, getClientSettings().showHighestReasoningEfforts)
     : [];
   if (!descriptor || choices.length < 2) return null;
   const isPrimary = descriptor.id === selected.primarySelectDescriptor?.id;
@@ -322,10 +316,8 @@ export function useTraitsSelection({
 }: TraitsSelectionInput) {
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
-  const disabledEfforts = useClientSettings((settings) =>
-    instanceId && model
-      ? settings.disabledModelEfforts[modelEffortPreferenceKey(instanceId, model)]
-      : undefined,
+  const showHighestReasoningEfforts = useClientSettings(
+    (settings) => settings.showHighestReasoningEfforts,
   );
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
@@ -362,7 +354,7 @@ export function useTraitsSelection({
     currentLabel: (descriptor: ProviderOptionDescriptor) =>
       getProviderOptionCurrentLabel(descriptor, modelSelection, reportedModelSelection),
     choices: (descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>) =>
-      selectableProviderOptionChoices(descriptor, disabledEfforts),
+      selectableProviderOptionChoices(descriptor, showHighestReasoningEfforts),
     changeSelect: (
       descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
       value: string,
