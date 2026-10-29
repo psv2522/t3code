@@ -53,126 +53,127 @@ export const lazyProviderDriver = <Config, R, UsageR>(
         }),
     });
 
-  const createDisabled = (input: ProviderDriverCreateInput<Config>) =>
-    Effect.gen(function* () {
-      const context = yield* Effect.context<R | Scope.Scope>();
-      const real = yield* Effect.cached(
-        loadDriver(input).pipe(
-          Effect.flatMap((loaded) => loaded.create(input)),
-          Effect.provideContext(context),
-        ),
-      );
-      const continuation = continuationIdentity
-        ? yield* continuationIdentity(input)
-        : defaultProviderContinuationIdentity({
-            driverKind: driver.driverKind,
-            instanceId: input.instanceId,
-          });
-      const checkedAt = DateTime.formatIso(yield* DateTime.now);
-      const snapshot = withInstanceIdentity({
-        instanceId: input.instanceId,
-        driverKind: driver.driverKind,
-        displayName: input.displayName,
-        accentColor: input.accentColor,
-        continuationGroupKey: continuation.continuationKey,
-      })(
-        buildServerProvider({
-          presentation: { displayName: driver.metadata.displayName },
-          enabled: false,
-          checkedAt,
-          models: [],
-          probe: {
-            installed: false,
-            version: null,
-            status: "warning",
-            auth: { status: "unknown" },
-            message: `${driver.metadata.displayName} is disabled in T3 Code settings.`,
-          },
-        }),
-      );
-
-      const capabilitiesError = (cause: ProviderDriverError) =>
-        new ProviderAdapterCapabilitiesError({ driver: driver.driverKind, cause });
-      const generation = (operation: keyof ProviderTextGeneration) =>
-        real.pipe(
-          Effect.mapError(
-            (cause) => new TextGenerationError({ operation, detail: cause.detail, cause }),
-          ),
-          Effect.map((instance) => instance.textGeneration),
-        );
-
-      return {
-        instanceId: input.instanceId,
-        driverKind: driver.driverKind,
-        continuationIdentity: continuation,
-        displayName: input.displayName,
-        accentColor: input.accentColor,
-        enabled: false,
-        snapshot: {
-          resolveMaintenance: () =>
-            Effect.succeed(
-              makeManualOnlyProviderMaintenanceCapabilities({
-                provider: driver.driverKind,
-                packageName: null,
-              }),
-            ),
-          getSnapshot: Effect.succeed(snapshot),
-          refresh: Effect.succeed(snapshot),
-          streamChanges: Stream.empty,
-          applyUsageLimits: () => Effect.void,
-        },
-        orchestrationAdapter: {
+  const createDisabled = Effect.fn("lazyProviderDriver.createDisabled")(function* (
+    input: ProviderDriverCreateInput<Config>,
+  ) {
+    const context = yield* Effect.context<R | Scope.Scope>();
+    const real = yield* Effect.cached(
+      loadDriver(input).pipe(
+        Effect.flatMap((loaded) => loaded.create(input)),
+        Effect.provideContext(context),
+      ),
+    );
+    const continuation = continuationIdentity
+      ? yield* continuationIdentity(input)
+      : defaultProviderContinuationIdentity({
+          driverKind: driver.driverKind,
           instanceId: input.instanceId,
-          driver: driver.driverKind,
-          getCapabilities: () =>
-            real.pipe(
-              Effect.mapError(capabilitiesError),
-              Effect.flatMap((instance) => instance.orchestrationAdapter.getCapabilities()),
-            ),
-          planSelectionTransition: (transition) =>
-            real.pipe(
-              Effect.mapError(capabilitiesError),
-              Effect.flatMap((instance) =>
-                instance.orchestrationAdapter.planSelectionTransition(transition),
-              ),
-            ),
-          openSession: (session) =>
-            real.pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapterOpenSessionError({
-                    driver: driver.driverKind,
-                    providerSessionId: session.providerSessionId,
-                    cause,
-                  }),
-              ),
-              Effect.flatMap((instance) => instance.orchestrationAdapter.openSession(session)),
-            ),
+        });
+    const checkedAt = DateTime.formatIso(yield* DateTime.now);
+    const snapshot = withInstanceIdentity({
+      instanceId: input.instanceId,
+      driverKind: driver.driverKind,
+      displayName: input.displayName,
+      accentColor: input.accentColor,
+      continuationGroupKey: continuation.continuationKey,
+    })(
+      buildServerProvider({
+        presentation: { displayName: driver.metadata.displayName },
+        enabled: false,
+        checkedAt,
+        models: [],
+        probe: {
+          installed: false,
+          version: null,
+          status: "warning",
+          auth: { status: "unknown" },
+          message: `${driver.metadata.displayName} is disabled in T3 Code settings.`,
         },
-        textGeneration: {
-          generateCommitMessage: (request) =>
-            generation("generateCommitMessage").pipe(
-              Effect.flatMap((text) => text.generateCommitMessage(request)),
+      }),
+    );
+
+    const capabilitiesError = (cause: ProviderDriverError) =>
+      new ProviderAdapterCapabilitiesError({ driver: driver.driverKind, cause });
+    const generation = (operation: keyof ProviderTextGeneration) =>
+      real.pipe(
+        Effect.mapError(
+          (cause) => new TextGenerationError({ operation, detail: cause.detail, cause }),
+        ),
+        Effect.map((instance) => instance.textGeneration),
+      );
+
+    return {
+      instanceId: input.instanceId,
+      driverKind: driver.driverKind,
+      continuationIdentity: continuation,
+      displayName: input.displayName,
+      accentColor: input.accentColor,
+      enabled: false,
+      snapshot: {
+        resolveMaintenance: () =>
+          Effect.succeed(
+            makeManualOnlyProviderMaintenanceCapabilities({
+              provider: driver.driverKind,
+              packageName: null,
+            }),
+          ),
+        getSnapshot: Effect.succeed(snapshot),
+        refresh: Effect.succeed(snapshot),
+        streamChanges: Stream.empty,
+        applyUsageLimits: () => Effect.void,
+      },
+      orchestrationAdapter: {
+        instanceId: input.instanceId,
+        driver: driver.driverKind,
+        getCapabilities: () =>
+          real.pipe(
+            Effect.mapError(capabilitiesError),
+            Effect.flatMap((instance) => instance.orchestrationAdapter.getCapabilities()),
+          ),
+        planSelectionTransition: (transition) =>
+          real.pipe(
+            Effect.mapError(capabilitiesError),
+            Effect.flatMap((instance) =>
+              instance.orchestrationAdapter.planSelectionTransition(transition),
             ),
-          generatePrContent: (request) =>
-            generation("generatePrContent").pipe(
-              Effect.flatMap((text) => text.generatePrContent(request)),
+          ),
+        openSession: (session) =>
+          real.pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterOpenSessionError({
+                  driver: driver.driverKind,
+                  providerSessionId: session.providerSessionId,
+                  cause,
+                }),
             ),
-          generateBranchName: (request) =>
-            generation("generateBranchName").pipe(
-              Effect.flatMap((text) => text.generateBranchName(request)),
-            ),
-          generateThreadTitle: (request) =>
-            generation("generateThreadTitle").pipe(
-              Effect.flatMap((text) => text.generateThreadTitle(request)),
-            ),
-          generateReviewGuide: (request) =>
-            generation("generateReviewGuide").pipe(
-              Effect.flatMap((text) => text.generateReviewGuide(request)),
-            ),
-        },
-      } satisfies ProviderInstance;
-    });
+            Effect.flatMap((instance) => instance.orchestrationAdapter.openSession(session)),
+          ),
+      },
+      textGeneration: {
+        generateCommitMessage: (request) =>
+          generation("generateCommitMessage").pipe(
+            Effect.flatMap((text) => text.generateCommitMessage(request)),
+          ),
+        generatePrContent: (request) =>
+          generation("generatePrContent").pipe(
+            Effect.flatMap((text) => text.generatePrContent(request)),
+          ),
+        generateBranchName: (request) =>
+          generation("generateBranchName").pipe(
+            Effect.flatMap((text) => text.generateBranchName(request)),
+          ),
+        generateThreadTitle: (request) =>
+          generation("generateThreadTitle").pipe(
+            Effect.flatMap((text) => text.generateThreadTitle(request)),
+          ),
+        generateReviewGuide: (request) =>
+          generation("generateReviewGuide").pipe(
+            Effect.flatMap((text) => text.generateReviewGuide(request)),
+          ),
+      },
+    } satisfies ProviderInstance;
+  });
 
   return {
     ...driver,
