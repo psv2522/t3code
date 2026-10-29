@@ -213,6 +213,25 @@ export function NewThreadSettingsSection() {
   );
 }
 
+export function ReasoningSettingsSection() {
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const showHighestReasoningEfforts =
+    !AsyncResult.isSuccess(preferences) || preferences.value.showHighestReasoningEfforts !== false;
+
+  return (
+    <SettingsSection title="Reasoning">
+      <SettingsSwitchRow
+        icon="brain"
+        label="Show highest reasoning levels"
+        subtitle="Show Max, Ultra, Ultracode, and Ultrathink in reasoning pickers for all models on this device."
+        value={showHighestReasoningEfforts}
+        onValueChange={(value) => savePreferences({ showHighestReasoningEfforts: value })}
+      />
+    </SettingsSection>
+  );
+}
+
 /** Per machine, since each machine's own setting decides whether it links and answers links. */
 function BetaSettingsSection() {
   const { environments } = useEnvironments();

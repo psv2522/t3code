@@ -1,6 +1,5 @@
 import { getClientSettings, useClientSettings } from "../../hooks/useSettings";
 import {
-  modelEffortPreferenceKey,
   buildTraitsTriggerDisplay,
   getDescriptorStringValue,
   getTraitSelectChange,
@@ -277,9 +276,7 @@ export function getReasoningTraitStep(input: {
         );
   const choices = selectableProviderOptionChoices(
     descriptor,
-    getClientSettings().disabledModelEfforts[
-      modelEffortPreferenceKey(input.instanceId, input.model)
-    ],
+    getClientSettings().showHighestReasoningEfforts,
   );
   const ordered = input.direction > 0 ? choices : choices.toReversed();
   const position =
@@ -353,10 +350,8 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   isComposerOwned = false,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
-  const disabledEfforts = useClientSettings((settings) =>
-    instanceId && model
-      ? settings.disabledModelEfforts[modelEffortPreferenceKey(instanceId, model)]
-      : undefined,
+  const showHighestReasoningEfforts = useClientSettings(
+    (settings) => settings.showHighestReasoningEfforts,
   );
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
@@ -477,27 +472,31 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
-                {selectableProviderOptionChoices(descriptor, disabledEfforts).map((option) => (
-                  <MenuRadioItem
-                    key={option.id}
-                    value={option.id}
-                    hideIndicator
-                    closeOnClick
-                    disabled={ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id}
-                  >
-                    <span className="flex w-full min-w-0 flex-col">
-                      <span className="flex min-w-0 items-center gap-1">
-                        <span className="min-w-0 truncate">{option.label}</span>
-                        {option.isDefault ? <DefaultBadge /> : null}
-                      </span>
-                      {option.description ? (
-                        <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
-                          {option.description}
+                {selectableProviderOptionChoices(descriptor, showHighestReasoningEfforts).map(
+                  (option) => (
+                    <MenuRadioItem
+                      key={option.id}
+                      value={option.id}
+                      hideIndicator
+                      closeOnClick
+                      disabled={
+                        ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id
+                      }
+                    >
+                      <span className="flex w-full min-w-0 flex-col">
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="min-w-0 truncate">{option.label}</span>
+                          {option.isDefault ? <DefaultBadge /> : null}
                         </span>
-                      ) : null}
-                    </span>
-                  </MenuRadioItem>
-                ))}
+                        {option.description ? (
+                          <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
+                    </MenuRadioItem>
+                  ),
+                )}
               </MenuRadioGroup>
             </MenuGroup>
           </div>

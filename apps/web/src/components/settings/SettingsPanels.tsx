@@ -450,6 +450,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
       ? ["Effort display"]
       : []),
+    ...(settings.showHighestReasoningEfforts !==
+    DEFAULT_UNIFIED_SETTINGS.showHighestReasoningEfforts
+      ? ["Show highest reasoning levels"]
+      : []),
     ...(settings.mathRenderingEnabled !== DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled
       ? ["Render math"]
       : []),
@@ -623,6 +627,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
+      showHighestReasoningEfforts: DEFAULT_UNIFIED_SETTINGS.showHighestReasoningEfforts,
       mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
@@ -1582,6 +1587,36 @@ export function ThreadsSettingsPanel() {
       </SettingsSection>
 
       <ProjectDefaultsSettings category="general" />
+
+      <SettingsSection id="reasoning" title="Reasoning">
+        <SettingsRow
+          {...searchableSetting("show-highest-reasoning-efforts")}
+          description="Show Max, Ultra, Ultracode, and Ultrathink in reasoning pickers for all models on this device."
+          resetAction={
+            settings.showHighestReasoningEfforts !==
+            DEFAULT_UNIFIED_SETTINGS.showHighestReasoningEfforts ? (
+              <SettingResetButton
+                label="highest reasoning levels"
+                onClick={() =>
+                  updateSettings({
+                    showHighestReasoningEfforts:
+                      DEFAULT_UNIFIED_SETTINGS.showHighestReasoningEfforts,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showHighestReasoningEfforts}
+              onCheckedChange={(checked) =>
+                updateSettings({ showHighestReasoningEfforts: checked })
+              }
+              aria-label="Show highest reasoning levels"
+            />
+          }
+        />
+      </SettingsSection>
 
       {!isProjectScope ? (
         <SettingsSection id="snooze" title="Snooze">

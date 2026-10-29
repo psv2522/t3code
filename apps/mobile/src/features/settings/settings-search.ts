@@ -42,6 +42,11 @@ const SETTINGS_SEARCH_TERMS = {
     "last project",
   ],
   SettingsThreads: [
+    "reasoning effort",
+    "max",
+    "ultra",
+    "ultracode",
+    "ultrathink",
     "new threads",
     "default workspace",
     "default permissions",

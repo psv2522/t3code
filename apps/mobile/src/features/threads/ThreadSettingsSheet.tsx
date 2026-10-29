@@ -1077,6 +1077,9 @@ function ThreadSettingsChoiceContent(props: {
 }) {
   const insets = useSafeAreaInsets();
   const session = useThreadSettingsSession();
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const showHighestReasoningEfforts =
+    !AsyncResult.isSuccess(preferences) || preferences.value.showHighestReasoningEfforts !== false;
   const descriptorId = props.submenu.kind === "descriptor" ? props.submenu.id : null;
 
   const activeDescriptor =
@@ -1103,36 +1106,38 @@ function ThreadSettingsChoiceContent(props: {
         }
       : activeDescriptor?.type === "select"
         ? {
-            rows: selectableChoices(activeDescriptor).map((choice) => ({
-              id: choice.id,
-              label: choice.label,
-              description: choice.description,
-              selected:
-                choice.id ===
-                (session.promptTraits.ultrathinkPromptControlled &&
-                activeDescriptor.id === session.promptTraits.primarySelectDescriptor?.id
-                  ? "ultrathink"
-                  : getProviderOptionCurrentValue(
-                      activeDescriptor,
-                      session.displayedModelSelection,
-                      session.reportedModelSelection,
-                    )),
-              onPress: () => {
-                void Haptics.selectionAsync();
-                if (
-                  session.promptTraits.ultrathinkInBodyText &&
+            rows: selectableChoices(activeDescriptor, showHighestReasoningEfforts).map(
+              (choice) => ({
+                id: choice.id,
+                label: choice.label,
+                description: choice.description,
+                selected:
+                  choice.id ===
+                  (session.promptTraits.ultrathinkPromptControlled &&
                   activeDescriptor.id === session.promptTraits.primarySelectDescriptor?.id
-                ) {
-                  Dialog.alert(
-                    "Reasoning controlled by prompt",
-                    'Your prompt contains "ultrathink" in the text. Remove it to change this option.',
-                  );
-                  return;
-                }
-                session.applyOptionChange(activeDescriptor.id, choice.id);
-                props.onSelected();
-              },
-            })),
+                    ? "ultrathink"
+                    : getProviderOptionCurrentValue(
+                        activeDescriptor,
+                        session.displayedModelSelection,
+                        session.reportedModelSelection,
+                      )),
+                onPress: () => {
+                  void Haptics.selectionAsync();
+                  if (
+                    session.promptTraits.ultrathinkInBodyText &&
+                    activeDescriptor.id === session.promptTraits.primarySelectDescriptor?.id
+                  ) {
+                    Dialog.alert(
+                      "Reasoning controlled by prompt",
+                      'Your prompt contains "ultrathink" in the text. Remove it to change this option.',
+                    );
+                    return;
+                  }
+                  session.applyOptionChange(activeDescriptor.id, choice.id);
+                  props.onSelected();
+                },
+              }),
+            ),
           }
         : null;
 

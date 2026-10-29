@@ -277,6 +277,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["new thread project provider reasoning effort"],
   },
   {
+    id: "show-highest-reasoning-efforts",
+    title: "Show highest reasoning levels",
+    to: "/settings/threads",
+    searchTerms: ["max ultra ultracode ultrathink reasoning effort thinking models"],
+  },
+  {
     id: "default-permissions",
     title: "Permissions",
     to: "/settings/threads",

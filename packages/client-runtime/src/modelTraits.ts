@@ -51,16 +51,19 @@ export function getDescriptorStringValue(
   return typeof value === "string" ? value : null;
 }
 
-export function modelEffortPreferenceKey(instanceId: string, model: string) {
-  return JSON.stringify([instanceId, model]);
-}
+const HIGHEST_REASONING_EFFORTS: ReadonlySet<string> = new Set([
+  "max",
+  "ultra",
+  "ultracode",
+  "ultrathink",
+]);
 
 export function selectableProviderOptionChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
-  disabledEfforts: ReadonlyArray<string> = [],
+  showHighestReasoningEfforts = true,
 ) {
-  return REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
-    ? descriptor.options.filter((option) => !disabledEfforts.includes(option.id))
+  return !showHighestReasoningEfforts && REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
+    ? descriptor.options.filter((option) => !HIGHEST_REASONING_EFFORTS.has(option.id))
     : descriptor.options;
 }
 
