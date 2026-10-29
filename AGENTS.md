@@ -275,12 +275,11 @@ In the desktop app the sidebar update button, Settings → About "Check for Upda
 
 ### Android APK builds
 
-For the owner's Android APK, build the committed `p2code/custom` branch, not an upstream tag. Use the standalone builder and keep its dedicated checkout and signing state between runs:
+For the owner's Android APK, build the committed `p2code/custom` branch, not an upstream tag. Use the standalone builder and keep its signing state between runs. It builds in this checkout, which must be clean with `p2code/custom` checked out, so commit first:
 
 ```sh
 python3 scripts/build-android-apk.py \
   --source "$PWD" --ref p2code/custom \
-  --checkout "${PWD}-android-build" \
   --sdk /opt/homebrew/share/android-commandlinetools \
   --java-home /opt/homebrew/opt/openjdk@21 \
   --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64' \

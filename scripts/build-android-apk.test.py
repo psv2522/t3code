@@ -42,6 +42,26 @@ class BuilderTests(unittest.TestCase):
                 builder.checkout_source(args, checkout)
             self.assertEqual((checkout / 'package.json').read_text(), 'unrelated edit')
 
+    def test_in_place_build_needs_clean_tree_on_requested_ref(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp).resolve()
+            commit = ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                      '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'fixture']
+            builder.run(['git', 'init', '-q', '-b', 'main', repo])
+            builder.run(commit, cwd=repo)
+            builder.run(['git', 'branch', 'custom'], cwd=repo)
+            builder.run(commit, cwd=repo)
+            args = SimpleNamespace(source=str(repo), ref='custom', tag=None)
+            with self.assertRaisesRegex(RuntimeError, 'Check out custom'):
+                builder.checkout_source(args, repo)
+            builder.run(['git', 'checkout', '-q', 'custom'], cwd=repo)
+            result = builder.checkout_source(args, repo)
+            self.assertEqual(result['sha'], builder.run(['git', 'rev-parse', 'HEAD'], cwd=repo, capture=True))
+            (repo / 'edit').write_text('unrelated edit')
+            with self.assertRaisesRegex(RuntimeError, 'has changes'):
+                builder.checkout_source(args, repo)
+            self.assertEqual((repo / 'edit').read_text(), 'unrelated edit')
+
     def test_native_caches_restore_after_failed_regeneration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
