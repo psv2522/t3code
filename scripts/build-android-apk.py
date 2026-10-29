@@ -85,6 +85,14 @@ def version_key(tag):
 
 
 def checkout_source(args, checkout):
+    if Path(args.source) == checkout:
+        require(args.ref, 'Building in place needs --ref')
+        require(not run(['git', 'status', '--porcelain', '--untracked-files=normal'], cwd=checkout, capture=True),
+                'Build checkout has changes; preserve/commit them before building')
+        sha = run(['git', 'rev-parse', '--verify', f'{args.ref}^{{commit}}'], cwd=checkout, capture=True)
+        require(run(['git', 'rev-parse', 'HEAD'], cwd=checkout, capture=True) == sha,
+                f'Check out {args.ref} before building in place')
+        return {'repository': args.source, 'revision': args.ref, 'tag': None, 'sha': sha}
     if not (checkout / '.git').exists():
         require(not checkout.exists() or not any(checkout.iterdir()), 'Checkout directory is not empty')
         run(['git', 'clone', '--no-checkout', '--no-tags', '--filter=blob:none', args.source, checkout])
@@ -285,7 +293,8 @@ def main():
     revision = parser.add_mutually_exclusive_group()
     revision.add_argument('--tag', help='Explicit upstream versioned nightly tag')
     revision.add_argument('--ref', help='Branch/ref from --source (builds its committed HEAD)')
-    parser.add_argument('--checkout', type=Path, help='Default: <state-dir>/checkout')
+    parser.add_argument('--checkout', type=Path,
+                        help='Default: the local --source when --ref is given (build in place), else <state-dir>/checkout')
     parser.add_argument('--state-dir', type=Path, default=Path.home() / '.cache/t3-android')
     parser.add_argument('--output', type=Path, help='Default: <state-dir>/apks')
     parser.add_argument('--abi', default='arm64-v8a', help='Comma-separated RN Android ABIs')
@@ -306,11 +315,11 @@ def main():
     if memory_bytes < 16 * 2**30:
         print('Warning: builds can approach 12–14 GiB total memory; avoid competing workloads', flush=True)
     state = args.state_dir.expanduser().resolve()
-    checkout = (args.checkout or state / 'checkout').expanduser().resolve()
     state.mkdir(parents=True, exist_ok=True)
-    if Path(args.source).exists():
+    local = Path(args.source).exists()
+    if local:
         args.source = str(Path(args.source).resolve())
-        require(Path(args.source) != checkout, 'Source and build checkout must be separate')
+    checkout = (args.checkout or (Path(args.source) if local and args.ref else state / 'checkout')).expanduser().resolve()
     lock = open(state / 'build.lock', 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

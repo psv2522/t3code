@@ -9,13 +9,15 @@ sufficient free disk space for dependencies and native outputs. The builder uses
 two Gradle workers, a 3 GiB heap, and in-process Kotlin. It does not depend on a
 custom memory-cap helper and does not enable WSL.
 
-Build the current custom branch's committed source in a separate persistent
-checkout:
+Build the current custom branch's committed source in place. With a local
+`--source` and `--ref`, the builder works in that checkout, which must have
+the ref checked out and no uncommitted changes. Ignored files (`node_modules`,
+`.env`, `apps/mobile/android`) are reused and rewritten. Pass `--checkout` to
+build in a separate persistent clone instead:
 
 ```sh
 python3 scripts/build-android-apk.py \
   --source "$PWD" --ref p2code/custom \
-  --checkout "${PWD}-android-build" \
   --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64' \
   --output "$HOME/Downloads"
 ```
