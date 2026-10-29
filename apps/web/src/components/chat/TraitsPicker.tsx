@@ -26,7 +26,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo, type ReactNode, useRef } from "react";
+import { createContext, memo, type ReactNode, useContext, useRef } from "react";
 import { GaugeIcon, ZapIcon } from "lucide-react";
 import {
   Menu,
@@ -46,6 +46,8 @@ import { ComposerControl, ComposerControlIcon, type ComposerControlSize } from "
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { EffortGlyph, resolveEffortGlyph } from "./EffortGlyph";
+
+const TraitsMenuOpensBelow = createContext(false);
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -410,9 +412,13 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     if ("modelOptions" in change) updateModelOptions(change.modelOptions);
   };
 
+  const opensBelow = useContext(TraitsMenuOpensBelow);
   const menuSelectDescriptors = isComposerOwned
-    ? selectDescriptors.toSorted(
-        (a, b) => Number(b.id === "serviceTier") - Number(a.id === "serviceTier"),
+    ? selectDescriptors.toSorted((a, b) =>
+        opensBelow
+          ? Number(REASONING_SELECT_DESCRIPTOR_IDS.has(b.id)) -
+            Number(REASONING_SELECT_DESCRIPTOR_IDS.has(a.id))
+          : Number(b.id === "serviceTier") - Number(a.id === "serviceTier"),
       )
     : selectDescriptors;
 
@@ -753,6 +759,13 @@ export const TraitsPicker = memo(function TraitsPicker({
       <MenuPopup
         align={isComposerOwned ? "center" : "start"}
         {...(isComposerOwned ? composerFloatingLayerProps : {})}
+        render={(popupProps, state) => (
+          <div {...popupProps}>
+            <TraitsMenuOpensBelow value={state.side === "bottom"}>
+              {popupProps.children}
+            </TraitsMenuOpensBelow>
+          </div>
+        )}
       >
         {extraMenuContent ? (
           <>

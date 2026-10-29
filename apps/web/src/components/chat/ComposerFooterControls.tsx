@@ -48,7 +48,6 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
   const runtimeModeOption =
     props.runtimeModeOptions.find((option) => option.mode === props.runtimeMode) ??
     supervisedRuntimeModeOption;
-  const RuntimeModeIcon = runtimeModeOption.icon;
   const interactionModeTooltip =
     props.interactionMode === "plan"
       ? "Plan mode. Click to return to normal build mode"
@@ -112,19 +111,13 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
                   data-composer-shortcut="composer.mode"
                   size={size}
                   // Mirrors the effort chip's trailing pe-1 so both gaps around the bars match.
-                  className="ps-1.5"
+                  className="ps-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-transparent data-pressed:text-foreground data-popup-open:bg-transparent data-popup-open:text-foreground"
                   aria-label={`Permissions: ${runtimeModeOption.label}`}
                 />
               }
             />
           }
         >
-          <ComposerControlIcon
-            icon={RuntimeModeIcon}
-            size={size}
-            // Match the label, not full foreground: the chip's presence already marks the mode.
-            {...(props.emphasized ? { className: "text-current" } : {})}
-          />
           <span
             data-composer-control-label
             className={accessDisplay === "icon" ? "sr-only" : undefined}
