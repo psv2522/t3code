@@ -312,7 +312,7 @@ const RunContextSelector = memo(function RunContextSelector({
       </MenuTrigger>
       <MenuPopup
         align="start"
-        side={isPanel ? "bottom" : "top"}
+        side="bottom"
         className={
           isPanel
             ? "w-(--anchor-width)"

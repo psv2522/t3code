@@ -672,8 +672,8 @@ export function BranchToolbarBranchSelector({
           : undefined
       }
       popupProps={{
-        align: displayMode === "panel" ? "start" : "end",
-        side: displayMode === "panel" ? "bottom" : "top",
+        align: displayMode === "panel" ? "start" : "center",
+        side: "bottom",
         className: cn("flex flex-col", displayMode === "panel" ? "w-(--anchor-width)" : "w-80"),
         ...(displayMode === "toolbar" ? composerFloatingLayerProps : {}),
       }}
