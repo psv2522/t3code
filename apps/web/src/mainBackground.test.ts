@@ -19,15 +19,24 @@ async function setupBackground(source?: Blob, storageError = false) {
   const decodeStarted = deferred();
   const decoded = deferred();
   const root = { style: { setProperty: vi.fn(), removeProperty: vi.fn() }, dataset: {} };
-  const read = () => {
+  const records = new Map<string, unknown>([["current", source]]);
+  const read = (key: string) => {
     readStarted.resolve();
-    return { result: source };
+    return { result: records.get(key) };
   };
   const db = {
     transaction: () => {
       const transaction = new EventTarget();
       queueMicrotask(() => transaction.dispatchEvent(new Event("complete")));
-      return Object.assign(transaction, { objectStore: () => ({ get: read }) });
+      return Object.assign(transaction, {
+        objectStore: () => ({
+          get: read,
+          put: (value: unknown, key: string) => {
+            records.set(key, value);
+            return { result: key };
+          },
+        }),
+      });
     },
   };
   vi.stubGlobal("indexedDB", {
@@ -59,7 +68,8 @@ async function setupBackground(source?: Blob, storageError = false) {
       toBlob: (callback: BlobCallback) => callback(new Blob(["rendered"])),
     }),
   });
-  vi.stubGlobal("createImageBitmap", async () => ({ width: 4, height: 4, close: vi.fn() }));
+  const createBitmap = vi.fn(async () => ({ width: 4, height: 4, close: vi.fn() }));
+  vi.stubGlobal("createImageBitmap", createBitmap);
   vi.stubGlobal(
     "Image",
     class {
@@ -70,10 +80,28 @@ async function setupBackground(source?: Blob, storageError = false) {
       }
     },
   );
-  return { startMainBackground, readStarted, decodeStarted, decoded, root };
+  return { startMainBackground, readStarted, decodeStarted, decoded, root, records, createBitmap };
 }
 
 describe("background startup", () => {
+  it("reuses the processed image until the source or display size changes", async () => {
+    const fixture = await setupBackground(new Blob(["source"]));
+    fixture.decoded.resolve();
+    const dispose = await fixture.startMainBackground();
+    try {
+      (await fixture.startMainBackground())();
+      expect(fixture.createBitmap).toHaveBeenCalledTimes(1);
+      fixture.records.set("current", new Blob(["replacement"]));
+      (await fixture.startMainBackground())();
+      expect(fixture.createBitmap).toHaveBeenCalledTimes(2);
+      window.innerWidth = 8;
+      (await fixture.startMainBackground())();
+      expect(fixture.createBitmap).toHaveBeenCalledTimes(3);
+    } finally {
+      dispose();
+      vi.unstubAllGlobals();
+    }
+  });
   it("keeps startup pending until the saved background is decoded and applied", async () => {
     const fixture = await setupBackground(new Blob(["source"]));
     let ready = false;

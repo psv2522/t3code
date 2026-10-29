@@ -8,7 +8,7 @@ import { hasCloudPublicConfig } from "./cloud/publicConfig";
 import { isElectron } from "./env";
 import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
-import { startMainBackground } from "./mainBackground";
+import { MainBackgroundStartup } from "./mainBackground";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
 
 const router = startAppServices();
@@ -28,26 +28,37 @@ window.addEventListener("vite:preloadError", (event) => {
 const app = <AppRoot router={router} />;
 
 // Split by runtime to keep Clerk out of local startup and clerk-js out of browser builds.
-const managedAuthShellModule =
+const ManagedAuthShell =
   clerkPublishableKey && hasCloudPublicConfig()
-    ? isElectron
-      ? import("./components/clerk/ElectronManagedAuthShell")
-      : import("./components/clerk/BrowserManagedAuthShell")
+    ? React.lazy(() =>
+        isElectron
+          ? import("./components/clerk/ElectronManagedAuthShell")
+          : import("./components/clerk/BrowserManagedAuthShell"),
+      )
     : null;
 
-export const startup = Promise.all([
-  managedAuthShellModule?.then((module) => module.default) ?? null,
-  router.load(),
-  startMainBackground(),
-])
-  .then(([ManagedAuthShell]) => {
+export const startup = router
+  .load()
+  .then(() => {
     // Route chunk failures resolve router.load() and surface later through the error boundary.
     if (reloadScheduled) return;
     if (!chunkLoadFailed) clearChunkReloadGuard();
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
+        <MainBackgroundStartup />
         {ManagedAuthShell && clerkPublishableKey ? (
-          <ManagedAuthShell publishableKey={clerkPublishableKey}>{app}</ManagedAuthShell>
+          <React.Suspense
+            fallback={
+              <main
+                className="flex h-dvh items-center justify-center text-muted-foreground"
+                role="status"
+              >
+                Loading workspace…
+              </main>
+            }
+          >
+            <ManagedAuthShell publishableKey={clerkPublishableKey}>{app}</ManagedAuthShell>
+          </React.Suspense>
         ) : (
           app
         )}

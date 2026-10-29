@@ -5,7 +5,7 @@ for (const stream of [process.stdout, process.stderr]) {
   });
 }
 
-import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -237,7 +237,7 @@ const layerDesktopClerk = DesktopClerk.layer.pipe(
 
 const layerDesktopApplicationRuntime = layerDesktopApplication.pipe(
   Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-  Layer.provideMerge(NodeHttpClient.layerUndici),
+  Layer.provideMerge(FetchHttpClient.layer),
   Layer.provideMerge(NetService.layer),
   Layer.provideMerge(layerElectron),
 );
