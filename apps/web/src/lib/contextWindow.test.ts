@@ -57,19 +57,19 @@ describe("live provider-turn usage (#8144)", () => {
       maxTokens: 200_000,
       inputTokens: 40_000,
       outputTokens: 2_000,
-      autoCompactThreshold: 150_000,
+      autoCompactThreshold: 167_000,
       updatedAt: "2026-08-27T00:00:00.000Z",
     });
     const snapshot = deriveLatestContextWindowSnapshot([], usage);
     expect(snapshot).not.toBeNull();
     expect(snapshot?.usedTokens).toBe(42_000);
-    expect(snapshot?.maxTokens).toBe(150_000);
-    expect(snapshot?.remainingTokens).toBe(108_000);
-    expect(snapshot?.usedPercentage).toBeCloseTo(28);
-    expect(snapshot?.autoCompactThreshold).toBe(150_000);
+    expect(snapshot?.maxTokens).toBe(200_000);
+    expect(snapshot?.remainingTokens).toBe(158_000);
+    expect(snapshot?.usedPercentage).toBeCloseTo(21);
+    expect(snapshot?.autoCompactThreshold).toBe(167_000);
     expect(
       formatContextWindowCompactionMessage("Claude Sonnet 4.6", snapshot?.autoCompactThreshold),
-    ).toBe("Compacts automatically at about 150,000 tokens.");
+    ).toBe("Compacts automatically at about 167,000 tokens.");
   });
 });
 

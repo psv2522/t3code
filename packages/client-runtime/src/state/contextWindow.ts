@@ -29,6 +29,18 @@ function asFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+const AUTO_COMPACT_RESERVE_TOKENS = 33_000;
+
+function meterMaxTokens(usage: {
+  readonly autoCompactThreshold?: number | null | undefined;
+  readonly maxTokens?: number | null | undefined;
+}) {
+  const threshold = asFiniteNumber(usage.autoCompactThreshold);
+  return threshold === null
+    ? asFiniteNumber(usage.maxTokens)
+    : threshold + AUTO_COMPACT_RESERVE_TOKENS;
+}
+
 type NullableContextWindowUsage = {
   readonly [Key in keyof ThreadTokenUsageSnapshot]: undefined extends ThreadTokenUsageSnapshot[Key]
     ? Exclude<ThreadTokenUsageSnapshot[Key], undefined> | null
@@ -81,7 +93,7 @@ export function deriveLatestContextWindowSnapshot(
 ): ContextWindowSnapshot | null {
   if (liveUsage != null) {
     const usedTokens = Math.max(0, liveUsage.usedTokens);
-    const maxTokens = liveUsage.autoCompactThreshold ?? liveUsage.maxTokens ?? null;
+    const maxTokens = meterMaxTokens(liveUsage);
     const usedPercentage =
       maxTokens !== null && maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : null;
     const remainingTokens =
@@ -118,8 +130,7 @@ export function deriveLatestContextWindowSnapshot(
     providerUsage !== undefined &&
     providerUsageUpdatedAt !== undefined
   ) {
-    const maxTokens =
-      asFiniteNumber(providerUsage.autoCompactThreshold) ?? asFiniteNumber(providerUsage.maxTokens);
+    const maxTokens = meterMaxTokens(providerUsage);
     const usedTokens = providerUsage.usedTokens;
     const usedPercentage =
       maxTokens !== null && maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : null;
