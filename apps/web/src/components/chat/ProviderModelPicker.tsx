@@ -92,7 +92,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   disabled?: boolean;
   terminalOpen?: boolean;
   open?: boolean;
-  popupAlign?: "start" | "end";
+  popupAlign?: "start" | "center" | "end";
   triggerClassName?: string;
   triggerLabel?: string;
   triggerAriaLabel?: string;
