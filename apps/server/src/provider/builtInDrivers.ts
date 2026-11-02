@@ -17,7 +17,8 @@ import { OpenCodeSettings } from "@t3tools/provider-opencode/settings";
 import type { PiDriverEnv } from "@t3tools/provider-pi/server";
 import { piUsageReader } from "@t3tools/provider-pi/server/usage";
 import { PiSettings } from "@t3tools/provider-pi/settings";
-import { FxDriver, type FxDriverEnv } from "@t3tools/provider-fx/server";
+import type { FxDriverEnv } from "@t3tools/provider-fx/server";
+import { FxSettings } from "@t3tools/provider-fx/settings";
 import type {
   AnyProviderDriver,
   ProviderUsageReaderEnv,
@@ -36,6 +37,7 @@ import { codexContinuationIdentity, resolveCodexHomeLayout } from "./Drivers/Cod
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
+const decodeFxSettings = Schema.decodeSync(FxSettings);
 const decodeOpenCodeSettings = Schema.decodeSync(OpenCodeSettings);
 const decodeAntigravitySettings = Schema.decodeSync(AntigravitySettings);
 const decodePiSettings = Schema.decodeSync(PiSettings);
@@ -85,6 +87,14 @@ const GrokDriver = lazyProviderDriver({
   defaultConfig: () => decodeGrokSettings({}),
   usage: grokUsageReader,
   load: () => import("@t3tools/provider-grok/server").then((m) => m.GrokDriver),
+});
+
+const FxDriver = lazyProviderDriver({
+  driverKind: ProviderDriverKind.make("fx"),
+  metadata: { displayName: "fx", supportsMultipleInstances: true },
+  configSchema: FxSettings,
+  defaultConfig: () => decodeFxSettings({}),
+  load: () => import("@t3tools/provider-fx/server").then((m) => m.FxDriver),
 });
 
 const OpenCodeDriver = lazyProviderDriver({
