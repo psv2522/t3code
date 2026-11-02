@@ -480,6 +480,40 @@ describe("bounded binary previews", () => {
       URL.revokeObjectURL(invalid);
     }
   });
+
+  it("rejects HEIF previews that are oversized or undecodable", async () => {
+    const encoder = new TextEncoder();
+    const box = (type: string, ...contents: Uint8Array[]) => {
+      const bytes = new Uint8Array(8 + contents.reduce((size, part) => size + part.length, 0));
+      new DataView(bytes.buffer).setUint32(0, bytes.length);
+      bytes.set(encoder.encode(type), 4);
+      let offset = 8;
+      for (const part of contents) {
+        bytes.set(part, offset);
+        offset += part.length;
+      }
+      return bytes;
+    };
+    const heif = (width: number, height: number) => {
+      const size = new Uint8Array(12);
+      new DataView(size.buffer).setUint32(4, width);
+      new DataView(size.buffer).setUint32(8, height);
+      return new Blob([
+        box("ftyp", encoder.encode("heic"), new Uint8Array(4)),
+        box("meta", new Uint8Array(4), box("iprp", box("ipco", box("ispe", size)))),
+      ]);
+    };
+    const decode = async (blob: Blob) => {
+      const src = URL.createObjectURL(blob);
+      try {
+        return await decodeImagePreview(src, true, new AbortController().signal);
+      } finally {
+        URL.revokeObjectURL(src);
+      }
+    };
+    await expect(decode(heif(20_000, 10))).rejects.toThrow("megapixels");
+    await expect(decode(heif(4000, 3000))).rejects.toThrow(/^(?!Could not load the image decoder)/);
+  });
 });
 import { OFFICE_PREVIEW_MAX_COLUMNS, type OfficeWorkerResult } from "./officePreviewProtocol";
 
