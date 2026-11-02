@@ -6,7 +6,7 @@ import { Atom, AsyncResult } from "effect/reactivity";
 import { msg, useGT } from "gt-react-native";
 import { useState } from "react";
 import { View } from "react-native";
-import Pdf from "react-native-pdf-jsi";
+import { PdfView } from "react-native-pdf-jsi";
 
 import { FilePreviewLoading, FilePreviewNotice } from "../features/files/FilePreviewFeedback";
 import { pdfInitialPage, pdfLinkUrl, preparePdfPreview } from "../lib/pdfPreview";
@@ -78,9 +78,10 @@ export function PdfPreview(props: { readonly uri: string }) {
     return <FilePreviewLoading message={gt("Loading PDF...")} background="card" />;
 
   return (
-    <Pdf
+    <PdfView
       source={{ uri: localUri }}
       initialPage={pdfInitialPage(props.uri) - 1}
+      fitPolicy="width"
       enableAnnotationRendering
       enableDoubleTapZoom
       onLinkPress={({ url: href }) => {
