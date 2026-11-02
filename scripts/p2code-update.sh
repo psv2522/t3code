@@ -176,7 +176,7 @@ if [[ -n "$installed" ]] && git cat-file -e "$installed^{commit}" 2>/dev/null; t
 fi
 
 step "Installing dependencies" vp i
-step "Checking local changes against the new base" bash -c 'cd packages/provider-cursor && vp test run && vp run typecheck'
+step "Checking local changes against the new base" bash -c 'cd packages/provider-core && vp test run src/server/lazyDriver.test.ts && vp run typecheck'
 git diff --quiet || die "Dependency install or checks modified tracked files. Inspect with: git -C $REPO status"
 
 push_all() {

@@ -221,7 +221,7 @@ This checkout carries `p2code/custom` on the public GitHub fork `psv2522/t3code`
 - Local `main` only mirrors `origin/main` (fast-forward only). Never commit to it.
 - Branches for upstream PRs start from `main`, are pushed to `fork`, and never contain `p2code/custom` commits.
 - All custom work lives on `p2code/custom`, always rebased onto `main`. It is pushed with `--force-with-lease`.
-- Carried on top of upstream: the lazy Cursor SDK load (upstream PR #19235), lazy provider drivers, and the p2code scripts. Drop a carried commit once upstream ships the equivalent.
+- Carried on top of upstream: lazy provider drivers and the p2code scripts. Drop a carried commit once upstream ships the equivalent.
 - Dependency bumps live in one `build(deps): bump carried dependencies` commit at the top of the stack. Fold new bumps into it (`git commit --fixup` plus `git rebase -i --autosquash main`) instead of adding commits, so a sync hits at most one lockfile conflict.
 - GitHub Actions are disabled on the fork. Do not re-enable them.
 - Keep custom changes small and local so rebasing stays cheap. The sync enables `rerere` and continues past a stop only when recorded resolutions cover every conflict or `pnpm-lock.yaml` is the only one, which it regenerates from upstream's copy; it prints each auto-resolution. Any other conflict aborts the sync and lists the files. Resolve by hand with `cd ~/Personal/Coding/t3code && git rebase main`; rerere records that resolution for the next sync.
@@ -242,7 +242,7 @@ Files:
 
 1. Requires a clean tree and the `p2code/custom` and `main` branches. Adds the `origin` remote if missing.
 2. Fetches upstream, fast-forwards `main`, rebases `p2code/custom` onto it. Warns if files under `apps/server/src/persistence/Migrations` changed since the installed build.
-3. `vp i`, then runs `provider-cursor` tests and typecheck. A failure stops the run.
+3. `vp i`, then runs the `lazyDriver` test and `provider-core` typecheck. A failure stops the run.
 4. Pushes `main` and `p2code/custom` (skipped with `--no-push`).
 5. Stops if `HEAD` equals `~/.p2code/installed-head` (override with `--force`).
 6. Builds, then installs. Inside T3 Code it builds only and tells the owner to run `p2code install`.
