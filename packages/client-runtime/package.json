@@ -593,13 +593,13 @@
     "@t3tools/source-control-core": "workspace:*",
     "@t3tools/source-control-definitions": "workspace:*",
     "effect": "catalog:",
-    "jszip": "3.10.1",
-    "three": "0.180.0",
-    "unbash": "^5.0.0"
+    "jszip": "3.10.2",
+    "three": "0.187.0",
+    "unbash": "^6.0.4"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/three": "0.180.0",
+    "@types/three": "0.187.0",
     "vite-plus": "catalog:"
   }
 }

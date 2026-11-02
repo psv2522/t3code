@@ -4,7 +4,7 @@ import * as Option from "effect/Option";
 import { Atom, AsyncResult } from "effect/reactivity";
 import { useState } from "react";
 import { View } from "react-native";
-import Pdf from "react-native-pdf-jsi";
+import { PdfView } from "react-native-pdf-jsi";
 
 import { FilePreviewLoading, FilePreviewNotice } from "../features/files/FilePreviewFeedback";
 import { pdfInitialPage, pdfLinkUrl, preparePdfPreview } from "../lib/pdfPreview";
@@ -70,9 +70,10 @@ export function PdfPreview(props: { readonly uri: string }) {
   if (localUri === null) return <FilePreviewLoading message="Loading PDF..." background="card" />;
 
   return (
-    <Pdf
+    <PdfView
       source={{ uri: localUri }}
       initialPage={pdfInitialPage(props.uri) - 1}
+      fitPolicy="width"
       enableAnnotationRendering
       enableDoubleTapZoom
       onLinkPress={({ url: href }) => {

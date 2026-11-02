@@ -23,6 +23,8 @@ allowBuilds:
   node-pty: true
   # Ships N-API prebuilds; its install script only rebuilds from source.
   objc-js: false
+  # postinstall only prints a sponsor banner.
+  react-native-pdf-jsi: false
   "react-native-enriched-markdown@file:apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.18-16db4c75.tgz": true
   sharp: true
   utf-8-validate: false
@@ -53,43 +55,42 @@ catalog:
   "@effect/sql-pg": 4.1.2
   "@effect/sql-sqlite-do": 4.1.2
   "@effect/vitest": 4.1.2
-  "@electron-webauthn/macos": 1.3.1
+  "@electron-webauthn/macos": 1.4.0
   "@legendapp/list": 3.7.2
   "@noble/curves": 1.9.1
   "@noble/hashes": 1.8.0
   "@pierre/diffs": 1.7.0-beta.3
   "@pierre/highlights": 0.5.0
-  "@tailwindcss/node": 4.3.3
-  "@tailwindcss/oxide": 4.3.3
-  "@tailwindcss/vite": 4.3.3
+  "@tailwindcss/node": 4.3.5
+  "@tailwindcss/oxide": 4.3.5
+  "@tailwindcss/vite": 4.3.5
   "@types/node": 24.12.4
-  "@types/plist": 3.0.5
   "@types/react": ~19.3.0
   "@types/react-dom": ~19.3.0
   "@types/ws": 8.18.2
   alchemy: 2.0.0-beta.85
   effect: 4.1.3
-  electron-webauthn: 1.3.1
+  electron-webauthn: 1.4.0
   jose: 6.2.2
   lightningcss: 1.33.0
-  objc-js: 1.5.0
-  pele: ^1.8.0
-  plist: 3.1.1
-  react: 19.3.0
-  react-dom: 19.3.0
-  tailwindcss: 4.3.3
-  tldts: 7.4.2
+  objc-js: 1.6.0
+  pele: ^1.13.0
+  plist: 5.1.0
+  react: 19.3.1
+  react-dom: 19.3.1
+  tailwindcss: 4.3.5
+  tldts: 7.4.19
   undici: 8.12.4
-  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  vite-plus: 1.4.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.5.0
+  vite-plus: 1.5.0
   ws: 8.22.0
   yaml: ^2.9.0
   # Markdown pipeline: the server counts find matches with the same parser the
   # web renders with, so both must resolve to one version.
-  mdast-util-directive: 3.1.0
+  mdast-util-directive: 3.2.0
   micromark-extension-directive: 4.0.0
   micromark-util-character: 2.1.1
-  micromark-util-types: 2.0.2
+  micromark-util-types: 2.0.3
   rehype-raw: 7.0.0
   rehype-sanitize: 6.0.0
   remark-breaks: 4.0.0
@@ -108,9 +109,10 @@ overrides:
   mdast-util-to-hast: 13.2.1
   alchemy: "catalog:"
   expo-audio: 58.0.11
+  expo-camera: 58.0.14
   expo-network: 58.0.4
   "@clerk/expo-native-components": 0.4.4
-  "@cursor/sdk": 1.2.0
+  "@cursor/sdk": 1.3.1
   expo-sharing: 58.0.22
   expo-widgets: 58.0.27
   "@ff-labs/fff-node": 0.11.0
@@ -124,12 +126,11 @@ overrides:
   react-native-gesture-handler: 3.5.0
   react-native-reanimated: 4.7.1
   react-native-keyboard-controller: 1.23.0
-  # 6.1.1 cannot build Android: it downloads PDFium from a release asset that was never published.
-  react-native-pdf-jsi: 6.1.0
+  react-native-pdf-jsi: 6.1.1
   react-native-webview: 14.0.1
   react-native-svg: 15.16.1
-  app-builder-lib: 26.16.1
-  electron-updater: 6.8.9
+  app-builder-lib: 26.18.0
+  electron-updater: 6.8.11
   expo-modules-core: 58.0.30
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
@@ -137,6 +138,11 @@ overrides:
   # Move this with @react-navigation/native: an older core than it requires crashes
   # every native stack at launch.
   "@react-navigation/core": 7.24.0
+  # Tiptap packages range over these; two copies make editor commands throw on marks.
+  prosemirror-model: 1.25.12
+  prosemirror-state: 1.4.4
+  prosemirror-transform: 1.12.5
+  prosemirror-view: 1.42.9
   # The dbus-next patch drops usocket from the package, but pnpm resolves from the
   # registry manifest, so the edge has to be cut here as well.
   "dbus-next>usocket": "-"
@@ -175,6 +181,7 @@ overrides:
   # Resolve below remark-math so Vite, Metro and Node use the same tokenizer.
   "remark-math>micromark-extension-math": npm:micromark-extension-llm-math@3.1.0
   micromark-extension-gfm-table: 2.1.1
+  micromark-util-types: 2.0.3
   # Keep one copy of these native-binary packages. lightningcss ships 11 platform binaries per
   # version, and the workspaces' tailwindcss ^4 ranges drift into two 4.3.x copies of the family.
   "@tailwindcss/node": "catalog:"
@@ -265,13 +272,13 @@ patchedDependencies:
   # before that frame is drawn, instead of a frame later.
   expo-modules-core@58.0.30: patches/expo-modules-core@58.0.30.patch
   # Observe the owned host exit independently of descendants retaining its stdio.
-  "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
-  app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
+  "@muse-code/sdk@1.4.14": patches/@muse-code__sdk@1.4.14.patch
+  app-builder-lib@26.18.0: patches/app-builder-lib@26.18.0.patch
   # Electron net requests never emit "socket", so upstream's idle timeout never fires and a
   # stalled update download hangs forever.
-  electron-updater@6.8.9: patches/electron-updater@6.8.9.patch
+  electron-updater@6.8.11: patches/electron-updater@6.8.11.patch
   # Local agents honor the attribution settings in the user's Cursor CLI cli-config.json.
-  "@cursor/sdk@1.2.0": patches/@cursor__sdk@1.2.0.patch
+  "@cursor/sdk@1.3.1": patches/@cursor__sdk@1.3.1.patch
   # A failed Artifacts.cached effect hangs every later caller: https://github.com/alchemy-run/alchemy/issues/2981
   alchemy@2.0.0-beta.85: patches/alchemy@2.0.0-beta.85.patch
   # Android: a marker orient other than "auto" or a number (auto-start-reverse) no longer throws.
@@ -279,7 +286,8 @@ patchedDependencies:
   # iOS: a feed following its end keeps the end through a size-only reflow in one pass.
   "@legendapp/list@3.7.2": patches/@legendapp__list@3.7.2.patch
   # Android: double-tap zoom no longer cancels itself, and taps near a link open it.
-  react-native-pdf-jsi@6.1.0: patches/react-native-pdf-jsi@6.1.0.patch
+  react-native-pdf-jsi@6.1.1: patches/react-native-pdf-jsi@6.1.1.patch
+  expo-camera@58.0.14: patches/expo-camera@58.0.14.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.

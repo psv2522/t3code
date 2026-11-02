@@ -1,0 +1,25 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index bedc34da95a5dc0a6b818af1acc3861d335dfdc2..bd4f1d960f693dee58b67f3808b77b1ba15c51fb 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -44,7 +44,7 @@ dependencies {
+ 
+   def barcodeDependencyConfiguration = isBarcodeScannerEnabled ? "implementation" : "compileOnly"
+   add(barcodeDependencyConfiguration, "com.google.android.gms:play-services-code-scanner:16.1.0")
+-  add(barcodeDependencyConfiguration, "com.google.mlkit:barcode-scanning:17.3.0")
++  add(barcodeDependencyConfiguration, "com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
+   add(barcodeDependencyConfiguration, "androidx.camera:camera-mlkit-vision:${camerax_version}")
+ 
+   def documentScannerDependencyConfiguration = isDocumentScannerEnabled ? "implementation" : "compileOnly"
+diff --git a/android/src/main/AndroidManifest.xml b/android/src/main/AndroidManifest.xml
+index 35ffabe014992f72b210e2552d8b8b15e0390de5..db1d7f22fc1c2343f847b33c167ff20c85cec05e 100644
+--- a/android/src/main/AndroidManifest.xml
++++ b/android/src/main/AndroidManifest.xml
+@@ -4,6 +4,6 @@
+   <application>
+     <meta-data
+       android:name="com.google.mlkit.vision.DEPENDENCIES"
+-      android:value="barcode_ui"/>
++      android:value="barcode_ui,barcode"/>
+   </application>
+ </manifest>

@@ -423,7 +423,9 @@ const makeWorkerConnection = Effect.fnUntraced(function* (options: {
         request.resume(reply);
       }
     });
-    worker.on("error", (cause) => stop(`${label} failed: ${cause.message}`));
+    worker.on("error", (cause) =>
+      stop(`${label} failed: ${cause instanceof Error ? cause.message : String(cause)}`),
+    );
     worker.on("exit", (code) => stop(`${label} exited with code ${code}`));
 
     const request = (input: WorkerRequest) =>
@@ -674,7 +676,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (filename: string) {
   worker.on("message", (message: { readonly type?: unknown; readonly message?: unknown }) => {
     if (message?.type === "failed") stop(String(message.message));
   });
-  worker.on("error", (cause) => stop(cause.message));
+  worker.on("error", (cause) => stop(cause instanceof Error ? cause.message : String(cause)));
   worker.on("exit", (code) => stop(`exited with code ${code}`));
   yield* Effect.addFinalizer(() =>
     Effect.promise(() => {
