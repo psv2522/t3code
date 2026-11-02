@@ -2802,9 +2802,17 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     | undefined,
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
+  clientOnly = false,
 ) {
   const buildConfig: Record<string, unknown> = {
-    afterPack: (yield* Path.Path).join(yield* RepoRoot, "scripts/prepare-server-compile-cache.cjs"),
+    ...(clientOnly
+      ? {}
+      : {
+          afterPack: (yield* Path.Path).join(
+            yield* RepoRoot,
+            "scripts/prepare-server-compile-cache.cjs",
+          ),
+        }),
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
     artifactName: "T3-Code-${version}-${arch}.${ext}",
@@ -3930,6 +3938,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
         : undefined,
       bundlesWslRuntime({ platform: options.platform, runtimeArchivePath: options.wslRuntime }),
       options.arch,
+      options.clientOnly,
     ),
     dependencies: stageDependencies,
     devDependencies: {
