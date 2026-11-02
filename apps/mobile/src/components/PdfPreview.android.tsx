@@ -7,7 +7,7 @@ import { Atom, AsyncResult } from "effect/reactivity";
 import { msg, useGT } from "gt-react-native";
 import { useState } from "react";
 import { View } from "react-native";
-import Pdf from "react-native-pdf-jsi";
+import { PdfView } from "react-native-pdf-jsi";
 
 import { FilePreviewLoading, FilePreviewNotice } from "../features/files/FilePreviewFeedback";
 import { pdfInitialPage, pdfLinkUrl, preparePdfPreview } from "../lib/pdfPreview";
@@ -97,13 +97,14 @@ function PdfPreviewSession(props: { readonly uri: string }) {
           }}
         />
       ) : (
-        <Pdf
+        <PdfView
           password={attempt?.file === file ? attempt?.password : undefined}
           onPasswordRequired={({ incorrect }) => {
             setAttempt(null);
             setChallenge({ file, incorrect });
           }}
           source={{ uri: localUri }}
+          fitPolicy="width"
           initialPage={pdfInitialPage(props.uri) - 1}
           enableAnnotationRendering
           enableDoubleTapZoom
