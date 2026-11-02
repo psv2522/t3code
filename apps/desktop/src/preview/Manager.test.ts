@@ -2271,9 +2271,15 @@ describe("PreviewManager", () => {
   effectIt.effect("shows picture-in-picture and keeps capturing after stalled captures", () =>
     withManager((manager) =>
       Effect.gen(function* () {
+        const resized = {
+          isEmpty: () => false,
+          toJPEG: () => Buffer.from("preview-frame"),
+          getSize: () => ({ width: 960, height: 540 }),
+        };
         const image = {
           toJPEG: () => Buffer.from("preview-frame"),
           getSize: () => ({ width: 1280, height: 720 }),
+          resize: vi.fn(() => resized),
         };
         const stalledInitial = Promise.withResolvers<typeof image>();
         const stalledLoop = Promise.withResolvers<typeof image>();
@@ -2301,6 +2307,12 @@ describe("PreviewManager", () => {
           expect(send).not.toHaveBeenCalled();
           yield* TestClock.adjust(500);
           expect(send).toHaveBeenCalled();
+          expect(image.resize).toHaveBeenCalledWith({ width: 960, quality: "good" });
+          expect(send).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ width: 960, height: 540 }),
+          );
+          expect(pictureInPictureWindow.setAspectRatio).toHaveBeenLastCalledWith(1280 / 720);
         } finally {
           // Release stalled native calls after a failing assertion against unchanged base.
           stalledInitial.resolve(image);

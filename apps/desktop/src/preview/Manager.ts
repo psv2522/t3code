@@ -134,6 +134,7 @@ const PICTURE_IN_PICTURE_INITIAL_WIDTH = 480;
 const PICTURE_IN_PICTURE_INITIAL_HEIGHT = 320;
 const PICTURE_IN_PICTURE_MIN_WIDTH = 240;
 const PICTURE_IN_PICTURE_MIN_HEIGHT = 160;
+const PICTURE_IN_PICTURE_MAX_PIXEL_RATIO = 2;
 const PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON = 0.002;
 const MAX_ARTIFACT_SITE_SLUG_LENGTH = 80;
 const requestRecordingCaptureExpression = (tabId: string): string =>
@@ -2550,8 +2551,33 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     }
     const frameSession = (yield* SynchronizedRef.get(frameCaptureSessionsRef)).get(tabId);
     if (frameSession?.scope !== captureSession.scope) return;
+    const pictureInPictureWindow = (yield* SynchronizedRef.get(pictureInPictureSessionsRef)).get(
+      tabId,
+    )?.window;
+    if (!pictureInPictureWindow || pictureInPictureWindow.isDestroyed()) return;
+    // The window never shows more than its own pixels, so hash and encode a downscaled copy of larger captures.
+    const maxFrameWidth = Math.max(
+      1,
+      Math.round(pictureInPictureWindow.getContentSize()[0]! * PICTURE_IN_PICTURE_MAX_PIXEL_RATIO),
+    );
+    const frameSource =
+      size.width > maxFrameWidth
+        ? yield* attempt(
+            {
+              operation: "frameCapture.resizeFrame",
+              tabId,
+              webContentsId: wc.id,
+            },
+            () => {
+              const resized = image.resize({ width: maxFrameWidth, quality: "good" });
+              return resized.isEmpty()
+                ? { image, size }
+                : { image: resized, size: resized.getSize() };
+            },
+          )
+        : { image, size };
     // Fingerprint before encoding so unchanged frames skip JPEG, base64, and IPC; unreadable frames must still be sent.
-    const fingerprint = fingerprintCapturedFrame(image, size);
+    const fingerprint = fingerprintCapturedFrame(frameSource.image, frameSource.size);
     const pictureInPicture =
       frameSession.consumers.has("picture-in-picture") &&
       (fingerprint === null || frameSession.lastPictureInPictureFingerprint !== fingerprint);
@@ -2562,23 +2588,20 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         tabId,
         webContentsId: wc.id,
       },
-      () => image.toJPEG(PICTURE_IN_PICTURE_JPEG_QUALITY),
+      () => frameSource.image.toJPEG(PICTURE_IN_PICTURE_JPEG_QUALITY),
     );
     const receivedAt = yield* currentIso;
     const frame: DesktopPreviewRecordingFrame = {
       tabId,
       data: encoded.toString("base64"),
-      width: size.width,
-      height: size.height,
+      width: frameSource.size.width,
+      height: frameSource.size.height,
       receivedAt,
     };
-    const pictureInPictureWindow = (yield* SynchronizedRef.get(pictureInPictureSessionsRef)).get(
-      tabId,
-    )?.window;
-    if (!pictureInPictureWindow || pictureInPictureWindow.isDestroyed()) return;
+    if (pictureInPictureWindow.isDestroyed()) return;
     yield* Effect.gen(function* () {
       const previousAspectRatio = (yield* Ref.get(pictureInPictureAspectRatiosRef)).get(tabId);
-      const aspectRatio = frame.width / frame.height;
+      const aspectRatio = size.width / size.height;
       if (
         previousAspectRatio === undefined ||
         Math.abs(previousAspectRatio - aspectRatio) > PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON
