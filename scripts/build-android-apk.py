@@ -11,8 +11,10 @@ Examples:
 
 Keep the state directory: it contains your signing identity. A differently signed
 APK cannot update an official installation in place. This script never installs
-or uninstalls phone apps. Native-library compression saves download bytes; Android
-extracts those libraries during installation, so installed storage differs.
+or uninstalls phone apps. The Hermes bundle stays uncompressed so cold start maps it
+in place. Native-library compression saves download bytes; Android extracts those
+libraries during installation, so installed storage differs. Over-the-air updates are
+disabled so a custom build never pulls upstream JavaScript.
 """
 
 import argparse
@@ -42,7 +44,7 @@ PACKAGE = 'com.t3tools.t3code.preview'
 PROPERTIES = {
     'android.enableShrinkResourcesInReleaseBuilds': 'true',
     'expo.useLegacyPackaging': 'true',
-    'android.enableBundleCompression': 'true',
+    'android.enableBundleCompression': 'false',
 }
 
 
@@ -326,7 +328,7 @@ def main():
     except BlockingIOError:
         raise RuntimeError('Another APK build is running in this state directory')
     env = dict(os.environ, APP_VARIANT='preview', NODE_ENV='production', CI='1',
-               EXPO_NO_GIT_STATUS='1')
+               EXPO_NO_GIT_STATUS='1', T3CODE_MOBILE_UPDATES_ENABLED='0')
     if args.java_home:
         env['JAVA_HOME'] = str(args.java_home.resolve())
     if env.get('JAVA_HOME'):
@@ -404,6 +406,7 @@ def main():
                 'Hermes compression wiring changed')
         config = json.loads(run([pnpm, 'exec', 'expo', 'config', '--type', 'public', '--json'], cwd=mobile, env=env, capture=True))
         cloud = validate_config(config)
+        require(config.get('updates', {}).get('enabled') is False, 'Over-the-air updates are still enabled')
         prepare_gradle_distribution(android, state / 'gradle')
         signing_env = env.copy()
         key, certificate = signing_identity(state, signing_env)
@@ -436,11 +439,11 @@ def main():
         require(activity, 'No launchable activity')
         with zipfile.ZipFile(apk) as bundle:
             info = bundle.getinfo('assets/index.android.bundle')
-            require(info.compress_type == zipfile.ZIP_DEFLATED and info.file_size > 0, 'Hermes bundle is not compressed')
+            require(info.compress_type == zipfile.ZIP_STORED and info.file_size > 0, 'Hermes bundle is compressed')
             libraries = [entry for entry in bundle.infolist() if entry.filename.startswith('lib/') and entry.filename.endswith('.so')]
             require(libraries, 'APK has no native libraries')
-            require(all(entry.compress_type == zipfile.ZIP_DEFLATED for entry in bundle.infolist()
-                        if entry.filename.endswith('.so')), 'Some native libraries are not compressed')
+            require(all(entry.compress_type == zipfile.ZIP_DEFLATED for entry in libraries),
+                    'Some native libraries are not compressed')
             require({entry.filename.split('/')[1] for entry in libraries} == set(abis), 'APK contains unexpected ABIs')
             embedded = json.loads(bundle.read('assets/app.config'))
             require(validate_config(embedded) == cloud, 'Embedded sign-in configuration differs from Expo config')
@@ -463,7 +466,8 @@ def main():
                    'validation': {'signature': True, 'certificate': True, 'package': True,
                                   'launchableActivity': True, 'abi': True, 'embeddedPreview': True,
                                   'cloudConfig': True, 'zipalign16KiB': True,
-                                  'hermesBundleDeflated': True, 'allNativeLibrariesDeflated': True},
+                                  'hermesBundleStored': True, 'allNativeLibrariesDeflated': True,
+                                  'otaUpdatesDisabled': True},
                    'phoneInstallation': 'unverified'}
         receipts = state / 'receipts'
         receipts.mkdir(exist_ok=True)

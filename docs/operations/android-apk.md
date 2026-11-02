@@ -18,8 +18,7 @@ build in a separate persistent clone instead:
 ```sh
 python3 scripts/build-android-apk.py \
   --source "$PWD" --ref p2code/custom \
-  --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64' \
-  --output "$HOME/Downloads"
+  --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64'
 ```
 
 With no `--source` or `--ref`, it selects the latest upstream versioned nightly
@@ -29,8 +28,20 @@ comma-separated ABI names; ARM64-only builds require `--confirm-arm64` evidence.
 Neither mode incorporates uncommitted source changes. A dirty build checkout
 stops the script; it never stashes or resets unrelated work.
 
-Use `--output "$HOME/Downloads"` to deliver only the APK there. Receipts stay in
-`<state-dir>/receipts`, and v4 signing is disabled to avoid `.idsig` sidecars.
+Leave `--output` unset to keep the final APK in `<state-dir>/apks` (normally
+`~/.cache/t3-android/apks`). After the builder finishes successfully, send the
+exact file printed on its `APK:` line to the owner's realme phone with Taildrop.
+Replace `<APK path>` below with that file's full path:
+
+```sh
+tailscale file cp "<APK path>" prathmesh-android:
+```
+
+`prathmesh-android` is the phone's Tailscale name; `tailscale file cp --targets`
+lists current destinations. Send only the APK. Keep it cached for retries and
+report a failed transfer. Do not copy or move build artifacts into the Mac's
+Downloads folder. Receipts stay in `<state-dir>/receipts`, and v4 signing is
+disabled to avoid `.idsig` sidecars.
 The default persistent state is `~/.cache/t3-android`. It contains pinned
 Node/pnpm downloads, a Gradle user cache, a private signing identity, and APKs.
 Keep the signing directory and its protected password file backed up securely.
@@ -54,11 +65,15 @@ exit. Gradle build caching stays enabled; configuration caching stays disabled.
 
 The generated preview app uses `com.t3tools.t3code.preview`. Validation checks
 its signing certificate, launchable activity, ABIs, embedded preview and Connect
-configuration, 16 KiB ZIP alignment, and deflated Hermes bundle/native libraries.
+configuration, 16 KiB ZIP alignment, an uncompressed Hermes bundle, compressed
+native libraries, and disabled over-the-air updates.
 A `.receipt.json` in `<state-dir>/receipts` records provenance, versions, checks, size, hash,
 cache state, and measured duration. A successful APK build does not verify phone
-installation or launch. Compressed native libraries are extracted at install
-time, so download savings do not imply equal installed-storage savings.
+installation or launch. The bundle is stored uncompressed so Android maps it in
+place, which shortens the bundle load. The native libraries stay compressed:
+storing them added about 40 MB to the APK without a measurable cold-start gain.
+Updates are disabled with `T3CODE_MOBILE_UPDATES_ENABLED=0` so the app never
+fetches upstream JavaScript.
 
 Rerun the same command to reuse caches. Do not routinely clean or rerun every
 Gradle task. Compare equivalent builds before making speed claims.

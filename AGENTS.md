@@ -282,11 +282,18 @@ python3 scripts/build-android-apk.py \
   --source "$PWD" --ref p2code/custom \
   --sdk /opt/homebrew/share/android-commandlinetools \
   --java-home /opt/homebrew/opt/openjdk@21 \
-  --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64' \
-  --output "$HOME/Downloads"
+  --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64'
 ```
 
-The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB Mac with two Gradle workers, a 3 GiB heap, in-process Kotlin, and Java 17 toolchains provisioned by Gradle. Preserve upstream minification, the three compression/shrinking properties, and the persistent signing identity under `~/.cache/t3-android/signing`. Do not substitute the former 8 GiB heap workaround or run Gradle clean routinely. Follow [Local Nightly Android APK](docs/operations/android-apk.md) for cache preservation, fresh Metro temp directories, revision selection, and validation. Deliver only the APK to Downloads. Keep receipts under `~/.cache/t3-android/receipts`; disable v4 signing so no `.idsig` sidecar is generated. Phone installation and launch remain unverified until actually tested; never uninstall an app or erase data automatically.
+Leave `--output` unset so the final APK stays in `~/.cache/t3-android/apks`. After a successful build and validation, send the exact file printed on the builder's `APK:` line to the owner's realme phone through Taildrop:
+
+```sh
+tailscale file cp "<APK path>" prathmesh-android:
+```
+
+Confirm the phone's current destination with `tailscale file cp --targets` if needed. Report transfer failures and keep the cached APK for retry. Do not copy or move build artifacts into the Mac's Downloads folder.
+
+The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB Mac with two Gradle workers, a 3 GiB heap, in-process Kotlin, and Java 17 toolchains provisioned by Gradle. Preserve upstream minification, resource shrinking, the uncompressed Hermes bundle, compressed native libraries, disabled over-the-air updates, and the persistent signing identity under `~/.cache/t3-android/signing`. Do not substitute the former 8 GiB heap workaround or run Gradle clean routinely. Follow [Local Nightly Android APK](docs/operations/android-apk.md) for cache preservation, fresh Metro temp directories, revision selection, and validation. Send only the APK through Taildrop. Keep receipts under `~/.cache/t3-android/receipts`; disable v4 signing so no `.idsig` sidecar is generated. Phone installation and launch remain unverified until actually tested; never uninstall an app or erase data automatically.
 
 ### Install and rollback
 
