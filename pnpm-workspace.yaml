@@ -107,6 +107,7 @@ overrides:
   mdast-util-to-hast: 13.2.1
   alchemy: "catalog:"
   expo-audio: 58.0.9
+  expo-camera: 58.0.10
   expo-network: 58.0.3
   "@clerk/expo-native-components": 0.4.0
   expo-sharing: 58.0.19
@@ -264,6 +265,7 @@ patchedDependencies:
   app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
   # A failed Artifacts.cached effect hangs every later caller: https://github.com/alchemy-run/alchemy/issues/2981
   alchemy@2.0.0-beta.85: patches/alchemy@2.0.0-beta.85.patch
+  expo-camera@58.0.10: patches/expo-camera@58.0.10.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.

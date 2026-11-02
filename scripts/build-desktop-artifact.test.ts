@@ -594,7 +594,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         },
         desktopDependencies: {
           "@napi-rs/keyring": "1.3.0",
-          "playwright-core": "1.60.0",
+          "ffi-rs": "1.3.7",
         },
         arch: "arm64",
         fffNodeVersion: "0.9.4",
@@ -604,7 +604,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "@ff-labs/fff-node": "0.9.4",
         "node-pty": "1.1.0",
         "@napi-rs/keyring": "1.3.0",
-        "playwright-core": "1.60.0",
+        "ffi-rs": "1.3.7",
         "@ff-labs/fff-bin-darwin-arm64": "0.9.4",
       },
     );
