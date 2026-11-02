@@ -71,6 +71,11 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
   private var measuredRows = 0
   private var clearingInput = false
   private var isCleanedUp = false
+  private var snapshotScheduled = false
+  private val snapshotRunnable = Runnable {
+    snapshotScheduled = false
+    if (!isCleanedUp) renderSnapshot()
+  }
   private var backgroundColorValue = Color.parseColor("#24292E")
   private var foregroundColorValue = Color.parseColor("#D1D5DA")
   private var mutedForegroundColorValue = Color.parseColor("#959DA5")
@@ -260,6 +265,8 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
     terminalCanvas.onRequestKeyboard = null
     terminalCanvas.onCellMetricsChanged = null
     terminalCanvas.selectionDelegate = null
+    removeCallbacks(snapshotRunnable)
+    snapshotScheduled = false
     destroyTerminal()
   }
 
@@ -448,8 +455,14 @@ class T3TerminalView(context: Context, appContext: AppContext) : ExpoView(contex
       recreateTerminal()
     } else if (terminalHandle != 0L) {
       feedOutput(bytes)
-      renderSnapshot()
+      scheduleSnapshot()
     }
+  }
+
+  private fun scheduleSnapshot() {
+    if (snapshotScheduled) return
+    snapshotScheduled = true
+    postOnAnimation(snapshotRunnable)
   }
 
   private fun feedOutput(data: ByteArray) {
