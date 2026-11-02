@@ -32,4 +32,5 @@ artifacts in sync when updating the repository-root `native/libghostty-vt`.
 - Files: `android/src/main/assets/fonts/MesloLGS-NF-{Regular,Bold}.ttf`
 - Source: https://github.com/romkatv/powerlevel10k-media (Meslo LG patched with Nerd Fonts glyphs)
 - Upstream: Meslo LG by André Berg (customization of Apple's Menlo), Nerd Fonts patcher
+- Modification: subset with `pyftsubset` to Latin, Greek, Cyrillic, punctuation, arrows, box drawing, symbols, and the Nerd Font Powerline, Pomicons, Weather, Seti, Devicons, Codicons, Font Awesome, Font Logos, and Octicons ranges. The Material Design (U+F0001–U+F1AF0) and legacy Material (U+F500–U+FD46) icons are omitted.
 - License: Apache License 2.0
