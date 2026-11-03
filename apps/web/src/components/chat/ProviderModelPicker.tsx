@@ -415,10 +415,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         }}
         initialFocus={searchInputRef}
         align={props.popupAlign ?? "start"}
-        // Docked, the popup opens above the composer and slides over it when that space is short,
-        // so a short window gets its full height (Floating UI sizes to the viewport) instead of a sliver.
+        // Docked, the popup prefers above the composer and flips below when there is more room there.
         {...(docked
-          ? { side: "top" as const, collisionAvoidance: { side: "shift", align: "shift" } as const }
+          ? { side: "top" as const, collisionAvoidance: { side: "flip", align: "shift" } as const }
           : {})}
         className="before:hidden"
         padding="none"
@@ -429,7 +428,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <div className="flex max-h-(--available-height) flex-col">
               {/* One fixed height, so a model with more options never resizes the popup. Short
                   windows shrink it and keep the footer. */}
-              <div className="flex h-86.5 min-h-0 max-sm:h-auto max-sm:flex-col">
+              <div className="flex h-50 min-h-0 max-sm:h-auto max-sm:flex-col">
                 {picker}
                 <div
                   data-model-picker-effort
