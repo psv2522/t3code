@@ -2149,6 +2149,35 @@ function firstChangedIndex<T>(previous: ReadonlyArray<T>, next: ReadonlyArray<T>
   return index;
 }
 
+const EMPTY_ATTEMPTS: ReadonlyArray<OrchestrationV2RunAttempt> = [];
+const EMPTY_NODES: ReadonlyArray<OrchestrationV2ExecutionNode> = [];
+const attemptIndexes = new WeakMap<
+  ReadonlyArray<OrchestrationV2RunAttempt>,
+  ReadonlyMap<OrchestrationV2ExecutionNode["id"], OrchestrationV2RunAttempt>
+>();
+const nodeIndexes = new WeakMap<
+  ReadonlyArray<OrchestrationV2ExecutionNode>,
+  ReadonlyMap<OrchestrationV2ExecutionNode["id"], OrchestrationV2ExecutionNode>
+>();
+
+function attemptsByRootNodeId(attempts: ReadonlyArray<OrchestrationV2RunAttempt>) {
+  let index = attemptIndexes.get(attempts);
+  if (index === undefined) {
+    index = new Map(attempts.map((attempt) => [attempt.rootNodeId, attempt] as const));
+    attemptIndexes.set(attempts, index);
+  }
+  return index;
+}
+
+function nodesById(nodes: ReadonlyArray<OrchestrationV2ExecutionNode>) {
+  let index = nodeIndexes.get(nodes);
+  if (index === undefined) {
+    index = new Map(nodes.map((node) => [node.id, node] as const));
+    nodeIndexes.set(nodes, index);
+  }
+  return index;
+}
+
 export function buildThreadFeed(
   visibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
   options?: {
@@ -2160,10 +2189,8 @@ export function buildThreadFeed(
   },
 ): ThreadFeedEntry[] {
   const anchoredMessages = options?.anchoredMessages ?? [];
-  const attemptByRootNodeId = new Map(
-    (options?.attempts ?? []).map((attempt) => [attempt.rootNodeId, attempt] as const),
-  );
-  const nodeById = new Map((options?.nodes ?? []).map((node) => [node.id, node] as const));
+  const attemptByRootNodeId = attemptsByRootNodeId(options?.attempts ?? EMPTY_ATTEMPTS);
+  const nodeById = nodesById(options?.nodes ?? EMPTY_NODES);
   const resolveAttemptId = (item: OrchestrationV2TurnItem): RunAttemptId | null => {
     if (item.nodeId === null || item.runId === null) return null;
     let nodeId: OrchestrationV2ExecutionNode["id"] | null = item.nodeId;
