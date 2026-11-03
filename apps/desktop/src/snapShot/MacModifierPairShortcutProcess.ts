@@ -27,7 +27,7 @@ function run(argv) {
     const pressed = ($.CGEventSourceFlagsState(0) & both) === both;
     if (pressed && !active) console.log("trigger");
     active = pressed;
-    delay(0.05);
+    delay(0.12);
   }
   return "orphaned";
 }`;
