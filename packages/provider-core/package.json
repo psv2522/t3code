@@ -147,6 +147,10 @@
       "types": "./src/server/snapshot.ts",
       "import": "./src/server/snapshot.ts"
     },
+    "./server/textSnapshotFlush": {
+      "types": "./src/server/textSnapshotFlush.ts",
+      "import": "./src/server/textSnapshotFlush.ts"
+    },
     "./server/snapshotProbe": {
       "types": "./src/server/snapshotProbe.ts",
       "import": "./src/server/snapshotProbe.ts"

@@ -39,6 +39,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import { textSnapshotFlushDelayMs } from "@t3tools/provider-core/server/textSnapshotFlush";
 import { providerMessageTextWithAttachmentPaths } from "@t3tools/provider-core/server/attachmentPrompt";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -1106,7 +1107,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         Effect.fnUntraced(function* (turn: ActivePiTurn, item: PiStreamItemState) {
           if (item.flushScheduled || item.completed) return;
           item.flushScheduled = true;
-          yield* Effect.sleep(Duration.millis(STREAM_FLUSH_MS)).pipe(
+          yield* Effect.sleep(
+            Duration.millis(textSnapshotFlushDelayMs(STREAM_FLUSH_MS, item.text.length)),
+          ).pipe(
             Effect.andThen(
               Effect.suspend(() => {
                 item.flushScheduled = false;
