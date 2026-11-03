@@ -1974,10 +1974,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
 
+    // instr, not LIKE '%…%': LIKE crawls multi-MB screenshot payloads about 10x slower.
     const inlineWorkOutput = sql`item.type = 'dynamic_tool' AND (
-      item.payload_json LIKE '%htmlRender%' OR item.payload_json LIKE ${`%${MCP_APP_OUTPUT_KEY}%`}
-      OR item.payload_json LIKE '%"viewedImagePath"%'
-      OR item.payload_json LIKE '%"toolName":"%delegate_task"%')`;
+      instr(item.payload_json, 'htmlRender') > 0
+      OR instr(item.payload_json, ${MCP_APP_OUTPUT_KEY}) > 0
+      OR instr(item.payload_json, '"viewedImagePath"') > 0
+      OR (instr(item.payload_json, 'delegate_task"') > 0
+        AND json_extract(item.payload_json, '$.toolName') LIKE '%delegate!_task' ESCAPE '!'))`;
 
     // Start from the few owned provider threads; a thread can have a large settled node history.
     const nodesOwningProviderThreads = (threadId: ThreadId) => sql`
@@ -5580,8 +5583,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       FROM orchestration_v2_projection_turn_items
       WHERE thread_id = ${threadId}
         AND type = 'dynamic_tool'
-        AND (payload_json LIKE '%htmlRender%' OR payload_json LIKE ${`%${MCP_APP_OUTPUT_KEY}%`}
-          OR payload_json LIKE '%preview_recording_stop%')
+        AND (
+          instr(payload_json, 'htmlRender') > 0
+          OR instr(payload_json, ${MCP_APP_OUTPUT_KEY}) > 0
+          OR instr(payload_json, 'preview_recording_stop') > 0
+        )
     `,
         sql<{ id: string }>`
       SELECT DISTINCT json_extract(attachment.value, '$.id') AS id
