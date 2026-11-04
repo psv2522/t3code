@@ -4,6 +4,7 @@ import type {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
+import type * as PortScanner from "../../preview/PortScanner.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type * as CodexClient from "effect-codex-app-server/client";
@@ -37,12 +38,15 @@ export class CodexAppServerClientFactory extends Context.Service<
 export const layerLazy: Layer.Layer<
   CodexAppServerClientFactory,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | ProviderEventLoggers.ProviderEventLoggers
+  | ChildProcessSpawner.ChildProcessSpawner
+  | PortScanner.PortDiscovery
+  | ProviderEventLoggers.ProviderEventLoggers
 > = Layer.effect(
   CodexAppServerClientFactory,
   Effect.gen(function* () {
     const context = yield* Effect.context<
       | ChildProcessSpawner.ChildProcessSpawner
+      | PortScanner.PortDiscovery
       | ProviderEventLoggers.ProviderEventLoggers
       | Scope.Scope
     >();
