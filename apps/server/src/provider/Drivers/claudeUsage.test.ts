@@ -46,6 +46,28 @@ describe("parseClaudeLine", () => {
     });
     expect(record?.dedupeKey).toBe("msg_1:");
     expect(record?.speed).toBe("standard");
+    expect(record).not.toHaveProperty("cacheCreation1hTokens");
+  });
+
+  it("keeps the 1-hour share of cache writes, capped at the total", () => {
+    const line = (oneHour: number) =>
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-08-07T04:05:13.944Z",
+        message: {
+          id: "msg_1h",
+          model: "claude-fable-5",
+          usage: {
+            input_tokens: 2,
+            cache_creation_input_tokens: 1000,
+            cache_creation: { ephemeral_5m_input_tokens: 400, ephemeral_1h_input_tokens: oneHour },
+          },
+        },
+      });
+
+    expect(parseClaudeLine(line(600))[0]?.cacheCreation1hTokens).toBe(600);
+    expect(parseClaudeLine(line(5000))[0]?.cacheCreation1hTokens).toBe(1000);
+    expect(parseClaudeLine(line(0))[0]).not.toHaveProperty("cacheCreation1hTokens");
   });
 
   it("gives every content block of one message the same dedupe key", () => {

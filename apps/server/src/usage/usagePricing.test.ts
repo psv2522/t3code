@@ -171,6 +171,24 @@ describe("usage pricing", () => {
     });
   });
 
+  it("prices 1-hour cache writes at the 1-hour rate, falling back to twice the input rate", () => {
+    const table = parseRateTable({
+      "claude-opus-5-5": {
+        ...rate(4e-6, 4e-7),
+        cache_creation_input_token_cost: 5e-6,
+        cache_creation_input_token_cost_above_1hr: 8e-6,
+      },
+      "claude-haiku-5-5": { ...rate(1e-6, 1e-7), cache_creation_input_token_cost: 1.25e-6 },
+    });
+    const oneHour = (model: string, cacheCreation1hTokens: number) =>
+      priceUsage(table, { ...record(model), cacheCreation1hTokens }).categoryCostUsd?.cacheWrite;
+
+    expect(oneHour("claude-opus-5-5", 0)).toBeCloseTo(5);
+    expect(oneHour("claude-opus-5-5", 400_000)).toBeCloseTo(0.6 * 5 + 0.4 * 8);
+    expect(oneHour("claude-opus-5-5", 9_000_000)).toBeCloseTo(8);
+    expect(oneHour("claude-haiku-5-5", 1_000_000)).toBeCloseTo(2);
+  });
+
   it("prices Codex priority and ultrafast requests at their published tier rates", () => {
     const table = parseRateTable({
       "gpt-6-astra": {

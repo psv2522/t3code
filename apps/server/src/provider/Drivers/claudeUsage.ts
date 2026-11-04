@@ -30,6 +30,18 @@ export function parseClaudeLine(line: string): readonly UsageRecord[] {
   return parseClaudeRecord(parsed);
 }
 
+function cacheCreation1hTokens(
+  creation: unknown,
+  breakdown: unknown,
+): { readonly cacheCreation1hTokens: number } | Record<string, never> {
+  if (typeof breakdown !== "object" || breakdown === null) return {};
+  const oneHour = Math.min(
+    tokenCount((breakdown as Record<string, unknown>)["ephemeral_1h_input_tokens"]),
+    tokenCount(creation),
+  );
+  return oneHour > 0 ? { cacheCreation1hTokens: oneHour } : {};
+}
+
 function parseClaudeRecord(parsed: unknown): readonly UsageRecord[] {
   if (typeof parsed !== "object" || parsed === null) return [];
 
@@ -70,6 +82,10 @@ function parseClaudeRecord(parsed: unknown): readonly UsageRecord[] {
       // Anthropic folds thinking tokens into output and does not break them out.
       reasoningTokens: 0,
     },
+    ...cacheCreation1hTokens(
+      usageRecord["cache_creation_input_tokens"],
+      usageRecord["cache_creation"],
+    ),
     reportedCostUsd: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
     speed: usageRecord["speed"] === "fast" ? "fast" : "standard",
     dedupeKey,
@@ -101,6 +117,7 @@ function parseClaudeRecord(parsed: unknown): readonly UsageRecord[] {
         outputTokens: tokenCount(advisor["output_tokens"]),
         reasoningTokens: 0,
       },
+      ...cacheCreation1hTokens(advisor["cache_creation_input_tokens"], advisor["cache_creation"]),
       reportedCostUsd: null,
       speed: executor.speed,
       dedupeKey: dedupeKey === null ? null : `${dedupeKey}:advisor:${index}`,

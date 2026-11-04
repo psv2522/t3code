@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema";
 import { CLAUDE_SYNTHETIC_MODEL } from "../provider/Drivers/claudeUsage.ts";
 import { GUARD_LENGTH, type TranscriptParsePosition } from "./usageTranscriptReader.ts";
 
-const USAGE_SCAN_CACHE_VERSION = 11 as const;
+const USAGE_SCAN_CACHE_VERSION = 12 as const;
 const SPEED_COMPATIBLE_SINCE_VERSION = 4;
 
 /**
@@ -17,8 +17,9 @@ const SPEED_COMPATIBLE_SINCE_VERSION = 4;
  * replace it, dropping saved usage for deleted transcripts. Separate files keep
  * both.
  */
-export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v11.json";
+export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v12.json";
 export const LEGACY_SCAN_CACHE_FILE_NAMES = [
+  "usage-scan-cache-v11.json",
   "usage-scan-cache-v10.json",
   "usage-scan-cache-v9.json",
   "usage-scan-cache-v8.json",
@@ -56,8 +57,10 @@ type SerializedRecord = readonly [
   dedupeKey: string | null,
   reportedCostUsd: number | null,
   speed: number,
-  rateModelIndex?: number | null,
-  unresolvedServiceTierTurnId?: string,
+  rateModelIndex: number | null,
+  // v12 inserts cacheCreation1hTokens (a number) before the turn id (a string); older rows lack it.
+  tail0?: number | string,
+  tail1?: string,
 ];
 
 interface SerializedFile {
@@ -116,6 +119,7 @@ function serializeFile(entry: CachedFile, tables: InternTables): SerializedFile 
     record.rateModel === undefined
       ? null
       : intern(tables.models, tables.modelIndex, record.rateModel),
+    record.cacheCreation1hTokens ?? 0,
     ...(record.unresolvedServiceTierTurnId === undefined
       ? ([] as const)
       : ([record.unresolvedServiceTierTurnId] as const)),
@@ -212,8 +216,11 @@ export function decodeScanCache(
         reportedCostUsd,
         speedIndex,
         rateModelIndex,
-        unresolvedServiceTierTurnId,
+        tail0,
+        tail1,
       ] = row as SerializedRecord;
+      const cacheCreation1h = typeof tail0 === "number" ? tail0 : undefined;
+      const unresolvedServiceTierTurnId = typeof tail0 === "number" ? tail1 : tail0;
       const speed = typeof speedIndex === "number" ? SPEEDS[speedIndex] : undefined;
 
       const model = typeof modelIndex === "number" ? models[modelIndex] : undefined;
@@ -225,6 +232,7 @@ export function decodeScanCache(
         (unresolvedServiceTierTurnId !== undefined &&
           typeof unresolvedServiceTierTurnId !== "string") ||
         (rateModelIndex != null && rateModel === undefined) ||
+        (cacheCreation1h !== undefined && !Number.isFinite(cacheCreation1h)) ||
         !Number.isFinite(uncached) ||
         !Number.isFinite(cached) ||
         !Number.isFinite(cacheCreation) ||
@@ -252,6 +260,9 @@ export function decodeScanCache(
           outputTokens: output,
           reasoningTokens: reasoning,
         },
+        ...(typeof cacheCreation1h === "number" && cacheCreation1h > 0
+          ? { cacheCreation1hTokens: cacheCreation1h }
+          : {}),
         reportedCostUsd: typeof reportedCostUsd === "number" ? reportedCostUsd : null,
         speed,
         ...(version >= 7 && unresolvedServiceTierTurnId !== undefined
@@ -294,8 +305,9 @@ export function decodeScanCache(
     // Keep history for deleted rollouts, but re-parse incompatible reducer state.
     // v9 and v11 repair skipped Codex requests; clean v8+ entries stay served while unchanged.
     // v10 adds Claude advisor calls, which no older Claude entry holds.
+    // v12 adds Claude's 1-hour cache write split, so older Claude entries re-parse to price it.
     const legacy =
-      (entry.p === "claude" && version < 10) ||
+      (entry.p === "claude" && version < 12) ||
       (format.state !== undefined &&
         (version < 6 ||
           (entry.p === "codex" && (version < 8 || (version < 11 && malformedRecords > 0)))));
