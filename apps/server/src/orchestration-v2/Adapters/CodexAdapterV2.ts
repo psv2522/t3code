@@ -103,7 +103,6 @@ import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexSchema from "effect-codex-app-server/schema";
 import * as Cause from "effect/Cause";
-import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -922,6 +921,13 @@ function codexCyberAccess(
   return descriptor?.type === "select" ? { defaultProgram: descriptor.currentValue } : undefined;
 }
 
+function codexSelectedReasoningEffort(modelSelection: ModelSelection): string | undefined {
+  return (
+    getModelSelectionStringOptionValue(modelSelection, "reasoningEffort") ??
+    codexDefaultReasoningEffortOverride(modelSelection.model)
+  );
+}
+
 export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTurnStartParams")(
   function* (input: {
     readonly nativeThreadId: string;
@@ -958,9 +964,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
             ],
           }
         : baseSandboxPolicy;
-    const selectedEffort =
-      getModelSelectionStringOptionValue(input.modelSelection, "reasoningEffort") ??
-      codexDefaultReasoningEffortOverride(input.modelSelection.model);
+    const selectedEffort = codexSelectedReasoningEffort(input.modelSelection);
     const effort =
       selectedEffort === undefined ? undefined : yield* decodeTurnReasoningEffort(selectedEffort);
     // ChatGPT subscription sharing rejects service tiers.
@@ -1706,7 +1710,7 @@ function codexThreadRuntimeParams(input: {
   readonly threadId: ThreadId | null;
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly stdioMcpServers?: ReadonlyArray<string>;
-  readonly modelSelection?: { readonly model: string };
+  readonly modelSelection?: ModelSelection;
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
 }): {
   readonly cwd?: string;
@@ -1722,11 +1726,17 @@ function codexThreadRuntimeParams(input: {
           tool_timeout_sec: CODEX_T3_MCP_TOOL_TIMEOUT_SEC,
           http_headers: { Authorization: mcpSession.authorizationHeader },
         };
+  // Start the thread at the turn's effort; a mismatch makes Codex switch settings mid-turn.
+  const effort =
+    input.modelSelection === undefined
+      ? undefined
+      : codexSelectedReasoningEffort(input.modelSelection);
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...(effort === undefined ? {} : { model_reasoning_effort: effort }),
       // One app-server serves many threads, so the id goes in per-thread shell config, not its env.
       ...(input.threadId === null
         ? {}
