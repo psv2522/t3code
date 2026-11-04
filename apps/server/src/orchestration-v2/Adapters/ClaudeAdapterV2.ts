@@ -6,7 +6,11 @@ import {
   toolOutputImages,
 } from "@t3tools/shared/toolOutput";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
-import { claudeTaskOutputRoot, tailClaudeTaskOutput } from "./ClaudeTaskOutputTail.ts";
+import {
+  claudeTaskOutputRoot,
+  readClaudeOutputFileTail,
+  tailClaudeTaskOutput,
+} from "./ClaudeTaskOutputTail.ts";
 import {
   dynamicToolTitle,
   formatReadToolLabel,
@@ -374,6 +378,8 @@ const CLAUDE_STOP_CONFIRM_TIMEOUT_MS = 10_000;
 const CLAUDE_STDERR_TAIL_LENGTH = 2_048;
 // The process group is killed on exit, so its stderr closes promptly.
 const CLAUDE_STDERR_DRAIN_TIMEOUT = Duration.seconds(1);
+// Process exit can precede buffered SDK messages, but descendants can keep stdout open forever.
+const CLAUDE_QUERY_EXIT_DRAIN_TIMEOUT = Duration.seconds(1);
 // How often the CLI's process tree is recorded when no agent scope will stop what it leaves.
 const CLAUDE_DESCENDANT_POLL = "1 second";
 // Claude Code's refusal of bypassPermissions as root, which it explains only on stderr.
@@ -716,6 +722,15 @@ export class ClaudeCodeRootRefusalError extends Schema.TaggedError<ClaudeCodeRoo
 ) {
   override get message(): string {
     return `Claude Code exited before it started: ${CLAUDE_ROOT_REFUSAL}`;
+  }
+}
+
+class ClaudeProcessExitError extends Schema.TaggedError<ClaudeProcessExitError>()(
+  "ClaudeProcessExitError",
+  {},
+) {
+  override get message(): string {
+    return "Claude Code exited before its message stream closed. Retry the turn.";
   }
 }
 
@@ -1441,7 +1456,7 @@ export const layerQueryRunner: Layer.Layer<
             });
           let spawnedProcess: ClaudeSpawnedProcess | undefined;
           let processExited = false;
-          let processExit: Promise<void> | undefined;
+          const processExit = Promise.withResolvers<void>();
           const spawnClaudeCodeProcess = (spawnOptions: ClaudeSpawnOptions) => {
             const child = spawnProcess(spawnOptions);
             spawnedProcess = child;
@@ -1449,15 +1464,20 @@ export const layerQueryRunner: Layer.Layer<
             const releaseAgent = portDiscovery.trackAgent();
             child.once("exit", releaseAgent);
             child.on("error", releaseAgent);
-            processExited = child.exitCode !== null || child.signalCode != null;
-            processExit = new Promise<void>((resolve) => {
-              if (processExited) resolve();
-              else
-                child.once("exit", () => {
-                  processExited = true;
-                  resolve();
-                });
+            child.once("error", () => {
+              // A failed spawn emits no exit event and never receives a pid.
+              if ("pid" in child && child.pid === undefined) {
+                processExited = true;
+                processExit.resolve();
+              }
             });
+            processExited = child.exitCode !== null || child.signalCode != null;
+            if (processExited) processExit.resolve();
+            else
+              child.once("exit", () => {
+                processExited = true;
+                processExit.resolve();
+              });
             return child;
           };
           const queryRuntime = yield* Effect.uninterruptibleMask((restore) =>
@@ -1536,10 +1556,10 @@ export const layerQueryRunner: Layer.Layer<
                       Effect.andThen(
                         Effect.tryPromise({
                           try: async () => {
-                            if (spawnedProcess !== undefined && !processExited) {
-                              spawnedProcess.kill("SIGKILL");
+                            if (spawnedProcess !== undefined) {
+                              if (!processExited) spawnedProcess.kill("SIGKILL");
+                              await processExit.promise;
                             }
-                            await processExit;
                           },
                           catch: (cause) => queryRunnerError(cause, "close"),
                         }).pipe(Effect.timeout("10 seconds")),
@@ -1563,6 +1583,14 @@ export const layerQueryRunner: Layer.Layer<
               claudeQueryMessages(queryRuntime),
               (cause) => cause,
             ).pipe(
+              Stream.interruptWhen(
+                Effect.promise(() => processExit.promise).pipe(
+                  Effect.andThen(Effect.sleep(CLAUDE_QUERY_EXIT_DRAIN_TIMEOUT)),
+                  Effect.andThen(
+                    Effect.fail(queryRunnerError(new ClaudeProcessExitError(), "processExit")),
+                  ),
+                ),
+              ),
               Stream.catch((cause) =>
                 Stream.fromEffect(
                   Effect.gen(function* () {
@@ -3690,6 +3718,62 @@ function claudeFileChangeText(output: ClaudeNativeToolOutput): string {
   return patch.hunks.length === 0 ? "" : formatPatch(patch, FILE_HEADERS_ONLY);
 }
 
+const decodeClaudePersistedBashResult = Schema.decodeUnknownOption(
+  Schema.Struct({
+    stdout: Schema.String,
+    stderr: Schema.optional(Schema.String),
+    persistedOutputPath: Schema.String,
+    persistedOutputSize: Schema.optional(Schema.Number),
+  }),
+);
+
+/** Leaves room for the omission marker within the 256 KiB a detail read returns. */
+const PERSISTED_COMMAND_OUTPUT_TAIL_BYTES = 255 * 1024;
+
+/** Over 30,000 characters, Claude keeps only the head in `stdout` and saves the whole
+ * output, stderr included, to a file. Rows show its end, marked when earlier output is cut. */
+const withPersistedClaudeCommandOutput = Effect.fn("ClaudeAdapterV2.persistedCommandOutput")(
+  function* (output: ClaudeNativeToolOutput) {
+    if (output.type !== "structured_tool_use_result") return output;
+    const result = Option.getOrUndefined(decodeClaudePersistedBashResult(output.value));
+    if (result === undefined) return output;
+    const path = yield* Path.Path;
+    const tail = path.isAbsolute(result.persistedOutputPath)
+      ? yield* readClaudeOutputFileTail(
+          result.persistedOutputPath,
+          PERSISTED_COMMAND_OUTPUT_TAIL_BYTES,
+        ).pipe(
+          Effect.tapError((cause) =>
+            Effect.logWarning("Failed to read Claude's saved command output.", { cause }),
+          ),
+          Effect.orElseSucceed(() => Option.none()),
+        )
+      : Option.none();
+    if (Option.isSome(tail) && tail.value.text.length > 0) {
+      const { text, omittedBytes } = tail.value;
+      return {
+        type: "structured_tool_use_result",
+        value: {
+          stdout:
+            omittedBytes === 0
+              ? text
+              : `[... ${omittedBytes} bytes of earlier output omitted ...]\n${text}`,
+          stderr: "",
+        },
+      } satisfies ClaudeNativeToolOutput;
+    }
+    const missingBytes = (result.persistedOutputSize ?? 0) - Buffer.byteLength(result.stdout);
+    if (missingBytes <= 0) return output;
+    return {
+      type: "structured_tool_use_result",
+      value: {
+        stdout: `${result.stdout}\n[... ${missingBytes} bytes of later output omitted ...]`,
+        stderr: result.stderr ?? "",
+      },
+    } satisfies ClaudeNativeToolOutput;
+  },
+);
+
 function claudeCommandOutputText(output: ClaudeNativeToolOutput): string {
   const value = claudeNativeToolOutputValue(output);
   if (typeof value === "object" && value !== null) {
@@ -4855,6 +4939,8 @@ interface ActiveClaudeSubagent {
   resultItemOrdinal: number | null;
   lastAssistantText: string | null;
   lastAssistantMessageId: string | null;
+  // A SubagentHandback call carries the report; the Agent result then only points at it.
+  handbackText: string | null;
 }
 
 interface ClaudeLiveQueryContext {
@@ -5344,9 +5430,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     adapterOptions.settings.homePath.trim().length > 0 ||
     adapterOptions.environment.CLAUDE_CONFIG_DIR !== hostEnvironment.CLAUDE_CONFIG_DIR;
   const announcedBypassDowngrades = new Set<ThreadId>();
-  const readBypassSettings = (filePath: string) =>
+  const readBypassSettings = (filePath: string, emptyIsUnset = false) =>
     fileSystem.readFileString(filePath).pipe(
-      Effect.flatMap(decodeClaudeBypassSettings),
+      Effect.flatMap((text) =>
+        emptyIsUnset && text.trim() === ""
+          ? Effect.succeed({} as typeof ClaudeBypassSettings.Type)
+          : decodeClaudeBypassSettings(text),
+      ),
       Effect.catchReason("PlatformError", "NotFound", () =>
         Effect.succeed({} as typeof ClaudeBypassSettings.Type),
       ),
@@ -5355,7 +5445,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     function* (cwd: string | null) {
       // resolveSettings does not initialize remote-cache eligibility in the SDK host.
       // Keep the payload intact so the SDK also honors managedSourcesBehavior.
-      const remote = yield* readBypassSettings(path.join(homePath, "remote-settings.json"));
+      // Claude CLI truncates remote-settings.json before rewriting it; empty is not a policy.
+      const remote = yield* readBypassSettings(path.join(homePath, "remote-settings.json"), true);
       const home = customHome
         ? yield* readBypassSettings(path.join(homePath, "settings.json"))
         : {};
@@ -6964,6 +7055,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             resultItemOrdinal: null,
             lastAssistantText: null,
             lastAssistantMessageId: null,
+            handbackText: null,
           };
           yield* Ref.update(sessionSubagentsByTaskId, (current) =>
             new Map(current).set(resume.taskId, subagent),
@@ -7528,6 +7620,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           // Unstated effort stays unknown: a custom agent definition may override the owner's.
           const effort = existingSubagent === undefined ? input.effort : existingSubagent.effort;
           const model = input.model ?? priorTask?.model ?? null;
+          const handbackText = isReopen ? null : (existingSubagent?.handbackText ?? null);
+          const result =
+            input.status === "completed" && handbackText !== null ? handbackText : input.result;
           const task = {
             ...(priorTask ?? {
               id: nodeId,
@@ -7572,7 +7667,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : {}),
             ...(input.progress === undefined ? {} : { progress: input.progress }),
             ...(workflowWithThreads === undefined ? {} : { workflow: workflowWithThreads }),
-            ...(input.result === undefined ? {} : { result: input.result }),
+            ...(result === undefined ? {} : { result }),
             ...(isReopen ? { startedAt: now } : {}),
             completedAt: input.status === "running" ? null : (priorTask?.completedAt ?? now),
             updatedAt: now,
@@ -7603,6 +7698,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               input.reopen === true ? null : (existingSubagent?.lastAssistantText ?? null),
             lastAssistantMessageId:
               input.reopen === true ? null : (existingSubagent?.lastAssistantMessageId ?? null),
+            handbackText,
           } satisfies ActiveClaudeSubagent;
           // Ingestion can terminalize after lookup; reopen only that generation to preserve newer results.
           const accepted = yield* Ref.modify(sessionSubagentsByTaskId, (current) => {
@@ -7800,12 +7896,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
 
           const resultAlreadyShown =
             input.status === "completed" &&
-            input.result !== undefined &&
+            result !== undefined &&
             normalizeClaudeResultText(subagent.lastAssistantText ?? "") ===
-              normalizeClaudeResultText(input.result);
+              normalizeClaudeResultText(result);
           if (
-            input.result !== undefined &&
-            input.result.trim().length > 0 &&
+            result !== undefined &&
+            result.trim().length > 0 &&
             input.status !== "running" &&
             !resultAlreadyShown
           ) {
@@ -7817,7 +7913,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               threadId: childThreadId,
               rootNodeId: childRootNodeId,
               role: "assistant",
-              text: input.result,
+              text: result,
               ordinal: resultItemOrdinal,
               now,
             });
@@ -8231,6 +8327,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             input.toolResult.tool_use_id,
           );
           yield* stopTaskOutputTail(toolCall.nativeItemId);
+          const output =
+            toolCall.classification.itemType === "command_execution"
+              ? yield* withPersistedClaudeCommandOutput(input.output).pipe(
+                  Effect.provideService(FileSystem.FileSystem, fileSystem),
+                  Effect.provideService(Path.Path, path),
+                )
+              : input.output;
           yield* emitToolCallArtifacts(
             buildToolCallArtifacts({
               context: input.context,
@@ -8243,7 +8346,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               rootNodeId: toolCall.rootNodeId,
               parentNodeId: toolCall.parentNodeId,
               ordinal: toolCall.ordinal,
-              output: input.output,
+              output,
               status:
                 toolNonExecutionKind === "cancelled" || toolNonExecutionKind === "interrupted"
                   ? toolNonExecutionKind
@@ -9351,6 +9454,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   new Map(current).set(message.task_id, {
                     ...registered,
                     confirmedOutcome: undefined,
+                    handbackText: null,
                     task: {
                       ...priorTask,
                       status: "running",
@@ -10926,6 +11030,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           }
 
           const toolPresentations = claudeToolPresentationsFromAssistantMessage(message);
+          const messageParentToolUseId = parentToolUseIdFromSdkMessage(message);
           for (const toolUse of claudeToolUseBlocksFromAssistantMessage(message)) {
             const nativeToolInput = claudeNativeToolInputFromUnknown(toolUse.input);
             if (toolUse.name === "Agent") {
@@ -10935,11 +11040,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 pendingSubagentLaunchesByToolUseId,
                 toolUse.id,
                 nativeToolInput,
-                parentToolUseIdFromSdkMessage(message),
+                messageParentToolUseId,
               );
               continue;
             }
-            if (toolUse.name === "TodoWrite" && parentToolUseIdFromSdkMessage(message) === null) {
+            if (toolUse.name === "SubagentHandback" && messageParentToolUseId !== null) {
+              const report =
+                nativeToolInput.type === "record" ? nativeToolInput.value.message : undefined;
+              const subagent = yield* resolveSubagentByToolUseId(context, messageParentToolUseId);
+              if (subagent !== undefined && typeof report === "string") {
+                subagent.handbackText = report;
+              }
+            }
+            if (toolUse.name === "TodoWrite" && messageParentToolUseId === null) {
               yield* emitClaudePlanProjection({
                 context,
                 nativeItemId: toolUse.id,
@@ -10952,7 +11065,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               nativeItemId: toolUse.id,
               toolName: toolUse.name,
               toolInput: nativeToolInput,
-              parentToolUseId: parentToolUseIdFromSdkMessage(message),
+              parentToolUseId: messageParentToolUseId,
               presentation:
                 toolPresentations.get(toolUse.id) ??
                 mcpToolPresentation({
@@ -11012,6 +11125,16 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 toolInput: EMPTY_CLAUDE_NATIVE_TOOL_INPUT,
                 parentToolUseId,
               }));
+            // A refused handback delivered nothing; the subagent's later result stands.
+            if (
+              toolCall.toolName === "SubagentHandback" &&
+              parentToolUseId !== null &&
+              (isClaudeToolResultError(toolResult) ||
+                claudeToolNonExecutionKind(message, toolResult.tool_use_id) === "cancelled")
+            ) {
+              const subagent = yield* resolveSubagentByToolUseId(context, parentToolUseId);
+              if (subagent !== undefined) subagent.handbackText = null;
+            }
             const appOutput =
               parentToolUseId === null &&
               toolCall.runId !== null &&
@@ -12301,14 +12424,17 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(launchArgSettings === undefined
               ? {}
               : { sdkSettings: claudeSdkLaunchArgSettings(launchArgSettings) }),
-            environment: claudeQueryEnvironment(
-              adapterOptions.environment,
-              turnInput.appThread,
-              turnInput.appThread.lineage.relationshipToParent === "subagent"
-                ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
-                : undefined,
-              shouldResume,
-            ),
+            environment: {
+              CLAUDE_CODE_FORK_SUBAGENT: "0",
+              ...claudeQueryEnvironment(
+                adapterOptions.environment,
+                turnInput.appThread,
+                turnInput.appThread.lineage.relationshipToParent === "subagent"
+                  ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
+                  : undefined,
+                shouldResume,
+              ),
+            },
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined
               ? {}

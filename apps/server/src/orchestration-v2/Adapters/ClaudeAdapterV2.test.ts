@@ -243,6 +243,10 @@ function makeClaudeTestAppThread(input: {
   };
 }
 
+function buildLogLines(count: number): string {
+  return Array.from({ length: count }, (_, index) => `build log line ${index + 1}`).join("\n");
+}
+
 function makeClaudeTestTurnInput(input: {
   readonly threadId: ThreadId;
   readonly providerThread: OrchestrationV2ProviderThread;
@@ -2870,6 +2874,10 @@ function makeFakeClaudeCli(answerSetServers = true) {
   const spawns: Array<SpawnOptions> = [];
   const controlRequests: Array<object> = [];
   const stdins: Array<NodeStream.PassThrough> = [];
+  const processes: Array<{
+    readonly stdout: NodeStream.PassThrough;
+    readonly exit: (code: number, endStdout: boolean) => void;
+  }> = [];
   const spawn = (options: SpawnOptions): SpawnedProcess => {
     spawns.push(options);
     const stdin = new NodeStream.PassThrough();
@@ -2884,6 +2892,14 @@ function makeFakeClaudeCli(answerSetServers = true) {
         stdout.end();
         child.emit("exit", null, "SIGTERM");
         return true;
+      },
+    });
+    processes.push({
+      stdout,
+      exit: (code, endStdout) => {
+        child.exitCode = code;
+        child.emit("exit", code, null);
+        if (endStdout) stdout.end();
       },
     });
     let pending = "";
@@ -2911,10 +2927,10 @@ function makeFakeClaudeCli(answerSetServers = true) {
     return child;
   };
   const closed = () => stdins.length > 0 && stdins.every((stdin) => stdin.writableEnded);
-  return { spawn, spawns, controlRequests, closed };
+  return { spawn, spawns, controlRequests, closed, processes };
 }
 
-describe("ClaudeAdapterV2 MCP credential channel", () => {
+describe("ClaudeAdapterV2 SDK query runner", () => {
   const t3McpServer = {
     type: "http" as const,
     url: "http://127.0.0.1:43123/mcp",
@@ -2951,6 +2967,68 @@ describe("ClaudeAdapterV2 MCP credential channel", () => {
       }),
       Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
+
+  it.effect.each([0, 1])(
+    "fails the message stream when the child exits %s but stdout stays open",
+    (code) =>
+      Effect.gen(function* () {
+        const cli = makeFakeClaudeCli();
+        const session = yield* openWith(cli);
+        const completed =
+          yield* Deferred.make<Exit.Exit<void, ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerError>>();
+        yield* session.messages.pipe(
+          Stream.runDrain,
+          Effect.exit,
+          Effect.flatMap((exit) => Deferred.succeed(completed, exit)),
+          Effect.forkChild,
+        );
+        cli.processes[0]!.exit(code, false);
+        yield* TestClock.adjust("2 seconds");
+
+        assert.isTrue(yield* Deferred.isDone(completed));
+        const exit = yield* Deferred.await(completed);
+        assert.isTrue(Exit.isFailure(exit));
+        if (Exit.isFailure(exit)) {
+          assert.equal(
+            makeProviderFailure({ cause: exit.cause, class: "transport_error" }).message,
+            "Claude Code exited before its message stream closed. Retry the turn.",
+          );
+        }
+        yield* session.close;
+      }),
+  );
+
+  it.effect.each([false, true])("drains messages written after process exit: %s", (afterExit) =>
+    Effect.gen(function* () {
+      const cli = makeFakeClaudeCli();
+      const session = yield* openWith(cli);
+      const message: SDKMessage = {
+        type: "system",
+        subtype: "status",
+        status: null,
+        uuid: "00000000-0000-4000-8000-000000000001",
+        session_id: "native-thread-claude-mcp-channel",
+      };
+      const collected = afterExit
+        ? yield* session.messages.pipe(Stream.runCollect, Effect.forkChild)
+        : undefined;
+      if (afterExit) {
+        cli.processes[0]!.exit(0, false);
+        yield* TestClock.adjust("500 millis");
+      }
+      cli.processes[0]!.stdout.write(`${JSON.stringify(message)}\n`);
+      if (afterExit) cli.processes[0]!.stdout.end();
+      else cli.processes[0]!.exit(0, true);
+
+      assert.deepEqual(
+        collected === undefined
+          ? yield* session.messages.pipe(Stream.runCollect)
+          : yield* Fiber.join(collected),
+        [message],
+      );
+      yield* session.close;
+    }),
+  );
 
   it.effect("commits queued delivery before interruptible protocol logging", () =>
     Effect.gen(function* () {
@@ -4696,6 +4774,21 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           yield* fileSystem.writeFileString(settingsFile, "{ invalid json");
           assert.equal((yield* open).permissionMode, "auto");
           yield* fileSystem.remove(settingsFile);
+          // Claude CLI rewrites remote-settings.json in place, truncating it first.
+          const midRewrite = yield* open.pipe(
+            Effect.provideService(FileSystem.FileSystem, {
+              ...fileSystem,
+              readFileString: (filePath, encoding) =>
+                filePath.endsWith("remote-settings.json")
+                  ? Effect.succeed("")
+                  : fileSystem.readFileString(filePath, encoding),
+            }),
+          );
+          assert.equal(
+            midRewrite.permissionMode,
+            "bypassPermissions",
+            "A remote-settings.json caught mid-rewrite must not downgrade Full access",
+          );
           const resolveSettings = vi
             .mocked(ClaudeSdk.resolveSettings)
             .mockClear()
@@ -13905,6 +13998,143 @@ describe("ClaudeAdapterV2 background wake turns", () => {
 
   it.effect.each([
     {
+      case: "not when the whole file fits",
+      fullOutput: buildLogLines(10_000),
+      writeFile: true,
+      firstLine: /^build log line 1$/,
+      lastLine: /^build log line 10000$/,
+    },
+    {
+      case: "only when its start is cut",
+      fullOutput: buildLogLines(20_000),
+      writeFile: true,
+      firstLine: /^\[\.\.\. \d+ bytes of earlier output omitted \.\.\.\]$/,
+      lastLine: /^build log line 20000$/,
+    },
+    {
+      // 300,002 bytes put the cut inside a three-byte character.
+      case: "without splitting a character when no line break is in reach",
+      fullOutput: `${"\u20ac".repeat(100_000)}ab`,
+      writeFile: true,
+      firstLine: /^\[\.\.\. \d+ bytes of earlier output omitted \.\.\.\]$/,
+      lastLine: /^\u20ac+ab$/,
+    },
+    {
+      case: "when its file cannot be read",
+      fullOutput: buildLogLines(20_000),
+      writeFile: false,
+      firstLine: /^build log line 1$/,
+      lastLine: /^\[\.\.\. \d+ bytes of later output omitted \.\.\.\]$/,
+    },
+  ])("marks a persisted Bash output $case", ({ fullOutput, writeFile, firstLine, lastLine }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const toolResultsDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-tool-results-",
+        });
+        const persistedOutputPath = NodePath.join(toolResultsDir, "b3k9x2m1q.txt");
+        if (writeFile) yield* fileSystem.writeFileString(persistedOutputPath, fullOutput);
+        const bashToolUseId = "toolu_01BashPersistedOutputCut";
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-claude-bash-persisted-output-cut"),
+            text: "Build it.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "assistant",
+            message: {
+              model: "claude-sonnet-4-6",
+              id: "msg_bash_persisted_output_cut",
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: bashToolUseId,
+                  name: "Bash",
+                  input: { command: "seq 1 20000 | sed 's/^/build log line /'" },
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-0000000007b0",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "user",
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: bashToolUseId,
+                  content: `<persisted-output>\nOutput too large. Full output saved to: ${persistedOutputPath}\n</persisted-output>`,
+                },
+              ],
+            },
+            parent_tool_use_id: null,
+            uuid: "00000000-0000-4000-8000-0000000007b1",
+            session_id: WAKE_NATIVE_SESSION,
+            tool_use_result: {
+              stdout: fullOutput.slice(0, 30_000),
+              stderr: "",
+              interrupted: false,
+              isImage: false,
+              noOutputExpected: false,
+              persistedOutputPath,
+              persistedOutputSize: Buffer.byteLength(fullOutput),
+            },
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeResultFrame({ uuid: "00000000-0000-4000-8000-0000000007b2", result: "Built." }),
+        );
+        yield* harness.awaitTerminal(1);
+
+        const bash = harness.events.findLast(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.nativeItemRef?.nativeId === bashToolUseId,
+        );
+        const output =
+          bash?.type === "turn_item.updated" && bash.turnItem.type === "command_execution"
+            ? (bash.turnItem.output ?? "")
+            : "";
+        const lines = output.split("\n");
+        assert.match(lines.at(0) ?? "", firstLine);
+        assert.match(lines.at(-1) ?? "", lastLine);
+        assert.notInclude(output, "\ufffd");
+        // A detail read keeps the first 256 KiB, so a longer output would lose its end.
+        assert.isAtMost(Buffer.byteLength(output), 256 * 1024);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    ),
+  );
+
+  it.effect.each([
+    {
       case: "an Edit",
       toolName: "Edit",
       toolInput: {
@@ -19309,6 +19539,143 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           McpProviderSessions.layer,
           NodeServices.layer,
           NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
+  it.effect("shows a SubagentHandback report instead of the Agent result's pointer", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const pointer = `This agent's report was delivered to you as a message from "agent" (its SubagentHandback call). Read it there; it is not repeated here.`;
+        const cases = [
+          {
+            name: "delivered",
+            handback: "ran",
+            isError: false,
+            text: pointer,
+            expected: "## Report",
+          },
+          { name: "failed", handback: "ran", isError: true, text: "Boom.", expected: "Boom." },
+          {
+            name: "refused",
+            handback: "refused",
+            isError: false,
+            text: "Final.",
+            expected: "Final.",
+          },
+          {
+            name: "cancelled",
+            handback: "cancelled",
+            isError: false,
+            text: "Final.",
+            expected: "Final.",
+          },
+        ];
+        for (const [index, testCase] of cases.entries()) {
+          const harness = yield* makeWakeHarness;
+          const launchId = `toolu-handback-launch-${testCase.name}`;
+          const uuid = (n: number) => `00000000-0000-4000-8000-0000000009${index}${n}`;
+          yield* harness.runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make(`attempt-claude-handback-${testCase.name}`),
+              text: "Delegate this task.",
+              attachments: [],
+            }),
+          );
+          yield* harness.offerAndWait(
+            makeSubagentTaskStartedFrame({
+              taskId: `agent-handback-${testCase.name}`,
+              toolUseId: launchId,
+              uuid: uuid(1),
+            }),
+          );
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "assistant",
+              uuid: uuid(2),
+              session_id: WAKE_NATIVE_SESSION,
+              parent_tool_use_id: launchId,
+              message: {
+                id: `handback-message-${testCase.name}`,
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                content: [
+                  {
+                    type: "tool_use",
+                    id: `toolu-handback-${testCase.name}`,
+                    name: "SubagentHandback",
+                    input: { message: "## Report" },
+                  },
+                ],
+              },
+            }),
+          );
+          if (testCase.handback !== "ran") {
+            yield* harness.offerAndWait(
+              claudeSdkFrame({
+                type: "user",
+                message: {
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool_result",
+                      tool_use_id: `toolu-handback-${testCase.name}`,
+                      content: "Permission denied.",
+                      ...(testCase.handback === "refused" ? { is_error: true } : {}),
+                    },
+                  ],
+                },
+                ...(testCase.handback === "cancelled"
+                  ? {
+                      tool_result_meta: [
+                        { id: `toolu-handback-${testCase.name}`, non_execution_kind: "cancelled" },
+                      ],
+                    }
+                  : {}),
+                parent_tool_use_id: launchId,
+                uuid: uuid(3),
+                session_id: WAKE_NATIVE_SESSION,
+              }),
+            );
+          }
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "user",
+              message: {
+                role: "user",
+                content: [
+                  {
+                    type: "tool_result",
+                    tool_use_id: launchId,
+                    content: testCase.text,
+                    ...(testCase.isError ? { is_error: true } : {}),
+                  },
+                ],
+              },
+              parent_tool_use_id: null,
+              uuid: uuid(4),
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+          );
+          let settled = yield* Queue.take(harness.subagentReceipts);
+          while (settled.subagent.status === "running") {
+            settled = yield* Queue.take(harness.subagentReceipts);
+          }
+          assert.equal(settled.subagent.result, testCase.expected, testCase.name);
+        }
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
         ),
       ),
     ),
