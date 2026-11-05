@@ -143,6 +143,9 @@ export interface Preferences {
   readonly pullRequestActivityVisibility?: PullRequestActivityVisibility;
   readonly pullRequestMergeMethod?: PullRequestMergeMethod;
   readonly liveActivitiesEnabled?: boolean;
+  /** Android: keep environment connections open in the background to show agent progress. */
+  readonly backgroundWatchEnabled?: boolean;
+  readonly backgroundWatchAlerts?: boolean;
   readonly themeId?: MobileThemeId;
   readonly lightThemeId?: MobileThemeId;
   readonly darkThemeId?: MobileThemeId;
@@ -236,6 +239,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     pullRequestActivityVisibility?: PullRequestActivityVisibility;
     pullRequestMergeMethod?: PullRequestMergeMethod;
     liveActivitiesEnabled?: boolean;
+    backgroundWatchEnabled?: boolean;
+    backgroundWatchAlerts?: boolean;
     themeId?: MobileThemeId;
     lightThemeId?: MobileThemeId;
     darkThemeId?: MobileThemeId;
@@ -302,6 +307,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;
+  }
+  if (typeof parsed.backgroundWatchEnabled === "boolean") {
+    preferences.backgroundWatchEnabled = parsed.backgroundWatchEnabled;
+  }
+  if (typeof parsed.backgroundWatchAlerts === "boolean") {
+    preferences.backgroundWatchAlerts = parsed.backgroundWatchAlerts;
   }
   if (
     typeof parsed.themeId === "string" &&
