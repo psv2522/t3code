@@ -28,7 +28,10 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { supportsAgentAwarenessPush } from "../agent-awareness/capabilities";
 import {
+  androidIgnoresBatteryOptimizations,
   openAndroidLiveUpdateSettings,
+  requestAndroidBatteryOptimizationExemption,
+  supportsAndroidBackgroundWatch,
   supportsAndroidLiveUpdateSettings,
 } from "../agent-awareness/androidNotifications";
 import { setLiveActivityUpdatesEnabled } from "../agent-awareness/liveActivityPreferences";
@@ -40,6 +43,7 @@ import {
 } from "../agent-awareness/remoteRegistration";
 import { refreshManagedRelayEnvironments } from "../cloud/managedRelayState";
 import { hasCloudPublicConfig, resolveRelayClerkTokenOptions } from "../cloud/publicConfig";
+import { useAppActive } from "../../lib/appState";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import { runtime } from "../../lib/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
@@ -108,17 +112,103 @@ function useDeviceRegistered(): boolean {
   return status === "registered";
 }
 
+function BackgroundWatchSection() {
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  // Re-reads the battery exemption when the user returns from system Settings.
+  useAppActive();
+  if (Platform.OS !== "android" || !supportsAndroidBackgroundWatch()) return null;
+
+  const enabled =
+    AsyncResult.isSuccess(preferencesResult) &&
+    preferencesResult.value.backgroundWatchEnabled === true;
+  const alertsEnabled =
+    AsyncResult.isSuccess(preferencesResult) &&
+    preferencesResult.value.backgroundWatchAlerts === true;
+  const unrestricted = androidIgnoresBatteryOptimizations();
+
+  const requestUnrestricted = () => {
+    if (!requestAndroidBatteryOptimizationExemption()) {
+      Dialog.alert(
+        "Couldn't open Settings",
+        "Open Android Settings, select T3 Code, then set Battery to Unrestricted.",
+      );
+    }
+  };
+
+  const enable = async () => {
+    const permission = await settleAsyncResult(() =>
+      runtime.runPromiseExit(requestAgentNotificationPermission),
+    );
+    if (permission._tag === "Failure" || permission.value.type !== "granted") {
+      Dialog.alert(
+        "Notification permission needed",
+        "Enable notifications in system Settings to show agent updates.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open Settings", onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return;
+    }
+    savePreferences({ backgroundWatchEnabled: true });
+    if (!androidIgnoresBatteryOptimizations()) {
+      Dialog.alert(
+        "Allow background use",
+        "Set T3 Code's battery usage to Unrestricted so Android keeps the connection while your phone is idle.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "Continue", onPress: requestUnrestricted },
+        ],
+      );
+    }
+  };
+
+  return (
+    <SettingsSection title="Direct connections">
+      <SettingsSwitchRow
+        icon="bolt.circle"
+        label="Background Updates"
+        subtitle="Keeps your environments connected in the background so agent progress and alerts reach this phone over Tailscale or your local network, without T3 Connect. Shows a quiet persistent notification."
+        value={enabled}
+        onValueChange={(next) => {
+          if (next) void enable();
+          else savePreferences({ backgroundWatchEnabled: false });
+        }}
+      />
+      {enabled ? (
+        <SettingsSwitchRow
+          icon="bell.badge"
+          label="Alerts"
+          subtitle="Also notify when an agent finishes, fails, or needs you. Off shows only the live card."
+          value={alertsEnabled}
+          onValueChange={(next) => savePreferences({ backgroundWatchAlerts: next })}
+        />
+      ) : null}
+      {enabled && !unrestricted ? (
+        <SettingsRow
+          icon="bolt.circle"
+          label="Allow Unrestricted Battery"
+          value="Android may pause the connection while the phone is idle"
+          onPress={requestUnrestricted}
+        />
+      ) : null}
+    </SettingsSection>
+  );
+}
+
 export function SettingsNotificationsRouteScreen() {
   if (!hasCloudPublicConfig()) {
     return (
       <SettingsScreen title="Notifications">
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
-          contentContainerClassName="px-5 pt-4"
+          contentContainerClassName="gap-6 px-5 pt-4"
         >
           <Text className="text-base text-foreground-muted">
             Notifications require T3 Connect in this app build.
           </Text>
+          <BackgroundWatchSection />
         </ScrollView>
       </SettingsScreen>
     );
@@ -484,6 +574,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
             />
           ) : null}
         </SettingsSection>
+        <BackgroundWatchSection />
       </ScrollView>
     </SettingsScreen>
   );

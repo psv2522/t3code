@@ -34,6 +34,7 @@ import {
   mobileApplicationActiveWakeup,
   type MobileApplicationActiveWakeup,
 } from "./app-state-wakeups";
+import { isBackgroundWatchActive, subscribeConnectionNudges } from "./background-watch";
 import * as ConnectionStorage from "./storage";
 
 function networkStatus(state: Network.NetworkState): "unknown" | "offline" | "online" {
@@ -87,6 +88,17 @@ const layerConnectivity = Connectivity.layer({
     ).pipe(Effect.asVoid),
   ),
 });
+
+const backgroundWatchNudges = Stream.callback<"network-changed">((queue) =>
+  Effect.acquireRelease(
+    Effect.sync(() =>
+      subscribeConnectionNudges(() => {
+        Queue.offerUnsafe(queue, "network-changed");
+      }),
+    ),
+    (unsubscribe) => Effect.sync(unsubscribe),
+  ).pipe(Effect.asVoid),
+);
 
 /** Wake connections on network path changes; online/offline misses Wi-Fi-to-cellular moves. */
 const networkPathChanges = Stream.callback<"network-changed">((queue) =>
@@ -142,7 +154,11 @@ const layerWakeups = Wakeups.layer({
                 cancelPause();
                 pauseTimer = setTimeout(() => {
                   pauseTimer = undefined;
-                  if (AppState.currentState === "background" && !isForegroundHandoffActive()) {
+                  if (
+                    AppState.currentState === "background" &&
+                    !isForegroundHandoffActive() &&
+                    !isBackgroundWatchActive()
+                  ) {
                     Queue.offerUnsafe(queue, "application-background");
                   }
                 }, ANDROID_BACKGROUND_PAUSE_AFTER_MS);
@@ -171,6 +187,7 @@ const layerWakeups = Wakeups.layer({
         Stream.map(() => "credentials-changed" as const),
       ),
       networkPathChanges,
+      backgroundWatchNudges,
     ],
     { concurrency: "unbounded" },
   ),

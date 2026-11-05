@@ -302,7 +302,7 @@ class AgentNotificationsTest : AgentNotificationsFixture() {
   }
 
   @Test
-  fun severalThreadsListEveryRowWithItsStatusAndActionsFollowThePriorityThread() {
+  fun severalThreadsListEveryRowWithItsStatusAndTheCardFollowsThePriorityThread() {
     lifecycle.currentState = Lifecycle.State.RESUMED
     val title = "A long thread title that should wrap rather than disappear"
     val data = update("attention", true) + mapOf(
@@ -317,17 +317,17 @@ class AgentNotificationsTest : AgentNotificationsFixture() {
     assertEquals("1 needs you", card.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
     assertEquals("8 active", card.extras.getString(Notification.EXTRA_SUB_TEXT))
     assertEquals(
-      "Approval $title · Project\nWorking Another thread · Other project",
+      "Pending Approval $title · Project\nWorking Another thread · Other project",
       card.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
     )
     assertEquals(
-      "Approval $title · Project",
+      "Pending Approval $title · Project",
       card.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
     )
-    assertEquals(listOf("Approve", "Dismiss"), card.actions.map { it.title.toString() })
+    assertEquals(0, card.actions?.size ?: 0)
     assertEquals(
       "t3code-dev://threads/environment/thread",
-      shadowOf(card.actions[0].actionIntent).savedIntent.dataString
+      shadowOf(card.contentIntent).savedIntent.dataString
     )
     assertEquals("Approve", card.extras.getString(NotificationCompat.EXTRA_SHORT_CRITICAL_TEXT))
 
@@ -341,10 +341,9 @@ class AgentNotificationsTest : AgentNotificationsFixture() {
     )
     val next = manager.activeNotifications.single().notification
     assertEquals("2 need you", next.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
-    assertEquals("Answer", next.actions[0].title.toString())
     assertEquals(
       "t3code-dev://threads/another-environment/another-thread",
-      shadowOf(next.actions[0].actionIntent).savedIntent.dataString
+      shadowOf(next.contentIntent).savedIntent.dataString
     )
     assertEquals("Answer", next.extras.getString(NotificationCompat.EXTRA_SHORT_CRITICAL_TEXT))
   }
@@ -422,6 +421,25 @@ class AgentNotificationsTest : AgentNotificationsFixture() {
   }
 
   @Test
+  fun aLongTitleStaysOnOneLineAndTheModelAppears() {
+    lifecycle.currentState = Lifecycle.State.RESUMED
+    AgentNotifications.receive(
+      context,
+      update("work", true) + mapOf(
+        "activity_line_0" to "Working\tA very long thread title that would wrap\tProject\tSonnet 5.5 High",
+        "activity_phase" to "running",
+      )
+    )
+    val card = manager.activeNotifications.single().notification
+    val title = card.extras.getCharSequence(Notification.EXTRA_TITLE).toString()
+    assertTrue(title.endsWith("…") && title.length <= 22)
+    assertEquals(
+      "Working Project\nSonnet 5.5 High",
+      card.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
+    )
+  }
+
+  @Test
   fun olderRelayRowsStillSelectTheNativeStateAndAction() {
     lifecycle.currentState = Lifecycle.State.RESUMED
     AgentNotifications.receive(
@@ -432,8 +450,11 @@ class AgentNotificationsTest : AgentNotificationsFixture() {
     )
     val card = manager.activeNotifications.single().notification
     assertEquals("Choose an icon", card.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
-    assertEquals("Answer", card.actions.first().title.toString())
-    assertEquals(2, card.actions.size)
+    assertEquals(0, card.actions?.size ?: 0)
+    assertEquals(
+      "Awaiting Input Project",
+      card.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
+    )
     assertFalse(card.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER))
   }
 
@@ -452,7 +473,7 @@ class AgentNotificationsTest : AgentNotificationsFixture() {
     assertEquals("2 working", card.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
     assertEquals("Project · 2 active", card.extras.getString(Notification.EXTRA_SUB_TEXT))
     assertEquals(
-      "Working Build feature\nDone Write tests",
+      "Working Build feature\nCompleted Write tests",
       card.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
     )
     AgentNotifications.receive(context, data + ("activity_active_count" to "15"))
@@ -632,6 +653,37 @@ class AgentNotificationsTest : AgentNotificationsFixture() {
     shadowOf(manager).setNotificationsEnabled(true)
     AgentNotifications.receive(context, message)
     assertEquals(2, manager.activeNotifications.size)
+  }
+
+  @Test
+  fun localUpdatesAreIgnoredUntilEnabledAndThenShowTheCardAndAlert() {
+    AgentNotifications.receiveLocal(context, "t3code-dev", update("local", true))
+    assertTrue(manager.activeNotifications.isEmpty())
+
+    AgentNotifications.setLocalEnabled(context, true, "t3code-dev")
+    AgentNotifications.receiveLocal(context, "t3code-dev", update("local", true))
+
+    assertEquals(
+      setOf("t3-agent-activity", "t3-agent-alert"),
+      manager.activeNotifications.map { it.tag }.toSet()
+    )
+    val card = manager.activeNotifications.single { it.tag == "t3-agent-activity" }
+    assertTrue(card.notification.flags and Notification.FLAG_ONGOING_EVENT != 0)
+
+    AgentNotifications.receiveLocal(context, "t3code-dev", update("local", true))
+    assertEquals(2, manager.activeNotifications.size)
+  }
+
+  @Test
+  fun disablingLocalUpdatesRemovesTheCardWhenPushIsOff() {
+    AgentNotifications.clear(context)
+    AgentNotifications.setLocalEnabled(context, true, "t3code-dev")
+    AgentNotifications.receiveLocal(context, "t3code-dev", update("local", true))
+    assertTrue(manager.activeNotifications.any { it.tag == "t3-agent-activity" })
+
+    AgentNotifications.setLocalEnabled(context, false, "t3code-dev")
+
+    assertTrue(manager.activeNotifications.none { it.tag == "t3-agent-activity" })
   }
 }
 
