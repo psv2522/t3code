@@ -18,3 +18,9 @@ Get push alerts, Live Activities, and home-screen widgets on iOS and Android whe
 
 - Ordinary alerts are muted while the mobile app is in the foreground, though viewing a thread on another device does not silence your phone.
 - Force-stopping T3 Code in Android system Settings pauses push delivery until you reopen the app.
+
+## Direct connections on Android
+
+Environments you reach over Tailscale or your local network can't send push notifications. On Android, turn on **Background Updates** in **Settings → Notifications** to keep those connections open while the app is in the background. The agent card then works the same way, without T3 Connect. Turn on **Alerts** to also get notified when an agent finishes, fails, or needs you.
+
+Background Updates shows a quiet persistent notification while it runs, and Android may pause the connection while the phone is idle. Set T3 Code's battery usage to **Unrestricted** when prompted to keep it reliable. Reopen the app after restarting your phone or force-stopping it. Environments that already publish through T3 Connect keep using push, so you won't get duplicate alerts. iOS doesn't support this mode, because Live Activities can only be updated by push.

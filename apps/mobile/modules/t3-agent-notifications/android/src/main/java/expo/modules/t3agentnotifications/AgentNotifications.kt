@@ -46,9 +46,11 @@ object AgentNotifications {
   private const val STORE = "t3-agent-notifications"
   private const val ACTIVITY_CHANNEL = "agent-activity"
   private const val ALERT_CHANNEL = "agent-alerts"
+  private const val WATCH_CHANNEL = "agent-watch"
   private const val ACTIVITY_TAG = "t3-agent-activity"
   private const val ALERT_TAG = "t3-agent-alert"
   private const val ACTIVITY_ID = 73001
+  const val WATCH_ID = 73002
   private const val MAX_MESSAGE_AGE_MS = 10 * 60 * 1000L
   private const val RUNNING_LIFETIME_MS = 2 * 60 * 60 * 1000L
   private const val MAX_LIFETIME_MS = 24 * 60 * 60 * 1000L
@@ -83,7 +85,11 @@ object AgentNotifications {
   @Synchronized
   fun clear(context: Context) {
     cancelActivity(context)
-    context.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit().clear().apply()
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    val local = prefs.getBoolean("localEnabled", false)
+    val localScheme = prefs.getString("localScheme", null)
+    prefs.edit().clear().putBoolean("localEnabled", local).putString("localScheme", localScheme)
+      .apply()
     val manager = manager(context)
     manager.activeNotifications.filter {
       it.tag == ACTIVITY_TAG || it.tag == ALERT_TAG ||
@@ -140,6 +146,41 @@ object AgentNotifications {
   private fun userHash(userId: String, deviceId: String): String =
     MessageDigest.getInstance("SHA-256").digest("$userId:$deviceId".toByteArray())
       .joinToString("") { "%02x".format(it) }
+
+  /** Local updates come from the app's own environment connections, not from the relay. */
+  @Synchronized
+  fun setLocalEnabled(context: Context, enabled: Boolean, scheme: String) {
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    prefs.edit().putBoolean("localEnabled", enabled).putString("localScheme", scheme).apply()
+    if (!enabled && !prefs.getBoolean("enabled", false)) cancelActivity(context)
+  }
+
+  @Synchronized
+  fun receiveLocal(context: Context, scheme: String, data: Map<String, String>) {
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    if (!prefs.getBoolean("localEnabled", false) ||
+      !NotificationManagerCompat.from(context).areNotificationsEnabled()
+    ) {
+      return
+    }
+    channels(context)
+    val alerted = showAlert(context, prefs, scheme, data)
+    updateActivity(context, prefs, data, System.currentTimeMillis(), alerted, ongoing = true)
+  }
+
+  fun watchNotification(context: Context): Notification {
+    channels(context)
+    val scheme = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+      .getString("localScheme", null) ?: "t3code"
+    return base(context, WATCH_CHANNEL)
+      .setPriority(NotificationCompat.PRIORITY_MIN)
+      .setContentTitle("Watching agent activity")
+      .setContentText("Connected to your environments")
+      .setOngoing(true).setSilent(true)
+      .setCategory(NotificationCompat.CATEGORY_SERVICE)
+      .setContentIntent(contentIntent(context, scheme, "/", WATCH_ID))
+      .build()
+  }
 
   private fun showAlert(
     context: Context,
@@ -233,7 +274,8 @@ object AgentNotifications {
     prefs: SharedPreferences,
     data: Map<String, String>,
     updatedAt: Long,
-    alerted: Boolean
+    alerted: Boolean,
+    ongoing: Boolean = prefs.getBoolean("ongoing", false)
   ) {
     val terminal = singleTerminal(data)
     // Only a one-row card on the alert's own thread is known to show nothing more
@@ -254,7 +296,7 @@ object AgentNotifications {
     val remainingMs = (expiresAt - System.currentTimeMillis()).coerceAtMost(MAX_LIFETIME_MS)
     val wasActive = prefs.getBoolean("lastActive", false)
     prefs.edit().putBoolean("lastActive", active).apply()
-    if (remainingMs <= 0 || !prefs.getBoolean("ongoing", false)) {
+    if (remainingMs <= 0 || !ongoing) {
       cancelActivity(context)
       prefs.edit().putBoolean("dismissed", false).apply()
       return
@@ -265,7 +307,7 @@ object AgentNotifications {
     if (prefs.getBoolean("dismissed", false) || isCovered(prefs, terminal)) {
       cancelActivity(context)
     } else {
-      val scheme = prefs.getString("scheme", "t3code") ?: "t3code"
+      val scheme = prefs.getString("scheme", null) ?: prefs.getString("localScheme", null) ?: "t3code"
       showActivity(context, scheme, data, active, remainingMs)
     }
   }
@@ -318,9 +360,6 @@ object AgentNotifications {
       .setContentIntent(openThread)
       .setDeleteIntent(dismissIntent)
     presentation.applyTo(builder, context)
-    val action = presentation.action
-    if (action != null && openThread != null) builder.addAction(0, action, openThread)
-    if (ongoing) builder.addAction(0, "Dismiss", dismissIntent)
     manager(context).notify(ACTIVITY_TAG, ACTIVITY_ID, builder.build())
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
       // Notification timeouts were added in API 26. One inexact alarm also
@@ -361,6 +400,11 @@ object AgentNotifications {
             ACTIVITY_CHANNEL,
             "Ongoing agent activity",
             NotificationManager.IMPORTANCE_LOW
+          ),
+          NotificationChannel(
+            WATCH_CHANNEL,
+            "Background connection",
+            NotificationManager.IMPORTANCE_MIN
           ),
         )
       )

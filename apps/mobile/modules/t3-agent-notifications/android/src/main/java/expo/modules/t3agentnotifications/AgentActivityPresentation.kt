@@ -5,54 +5,65 @@ import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
-internal data class ActivityRow(val status: String, val title: String, val project: String)
+internal data class ActivityRow(
+  val status: String,
+  val title: String,
+  val project: String,
+  val model: String = ""
+)
+
+private const val TITLE_LIMIT = 22
+
+private fun oneLine(text: String) =
+  if (text.length > TITLE_LIMIT) text.take(TITLE_LIMIT - 1).trimEnd() + "…" else text
 
 internal enum class ActivityPhase(
   val status: String,
   val heading: String,
   val chip: String,
-  val action: String,
+  val label: String,
   val color: Int
 ) {
-  STARTING("Connecting", "Starting", "Working", "Open", R.color.agent_activity_working),
-  RUNNING("Working", "Working", "Working", "Open", R.color.agent_activity_working),
+  STARTING("Connecting", "Starting", "Working", "Connecting", R.color.agent_activity_working),
+  RUNNING("Working", "Working", "Working", "Working", R.color.agent_activity_working),
   APPROVAL(
     "Approval",
     "Approval needed",
     "Approve",
-    "Approve",
+    "Pending Approval",
     R.color.agent_activity_attention
   ),
   INPUT(
     "Input",
     "Question for you",
     "Answer",
-    "Answer",
+    "Awaiting Input",
     R.color.agent_activity_input
   ),
   STALE(
     "Waiting",
     "Waiting for an update",
     "Waiting",
-    "Open",
+    "Waiting",
     R.color.agent_activity_waiting
   ),
   COMPLETED(
     "Done",
     "Finished",
     "Done",
-    "Open",
+    "Completed",
     R.color.agent_activity_done
   ),
   FAILED(
     "Failed",
     "Failed",
     "Failed",
-    "Open",
+    "Failed",
     R.color.agent_activity_failed
   );
 
@@ -66,11 +77,16 @@ internal enum class ActivityPhase(
 
 /** The relay orders rows and their deep link together; never reorder them in the client. */
 internal fun activityRows(data: Map<String, String>) = (0..4).mapNotNull {
-  val parts = data["activity_line_$it"]?.split('\t', limit = 3) ?: return@mapNotNull null
-  if (parts.size != 3 || parts[1].isBlank()) {
+  val parts = data["activity_line_$it"]?.split('\t', limit = 4) ?: return@mapNotNull null
+  if (parts.size < 3 || parts[1].isBlank()) {
     null
   } else {
-    ActivityRow(parts[0].take(40), parts[1].take(120), parts[2].take(120))
+    ActivityRow(
+      parts[0].take(40),
+      parts[1].take(120),
+      parts[2].take(120),
+      parts.getOrNull(3).orEmpty().take(60)
+    )
   }
 }
 
@@ -122,8 +138,6 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
     else -> phase.chip
   }
 
-  val action = if (active) phase?.action ?: "Open" else null
-
   fun applyTo(builder: NotificationCompat.Builder, context: Context) {
     val tint = phase?.let { ContextCompat.getColor(context, it.color) }
     if (tint != null) builder.setColor(tint)
@@ -131,7 +145,8 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
     // "3 working" stays neutral so the accent keeps meaning something.
     val tintedSummary = tint != null && rows.size > 1 && phase != ActivityPhase.RUNNING &&
       phase != ActivityPhase.STARTING
-    builder.setContentTitle(if (tintedSummary) tinted(summary, tint!!) else summary)
+    val title = oneLine(summary)
+    builder.setContentTitle(if (tintedSummary) tinted(title, tint!!) else title)
     if (rows.size > 1) {
       builder.setSubText(
         listOfNotNull(
@@ -142,10 +157,9 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
     }
     val body = body(context)
     val lineBreak = body.indexOf('\n')
-    val firstLine = if (lineBreak >= 0) body.subSequence(0, lineBreak) else body
-    builder.setContentText(firstLine).setStyle(NotificationCompat.BigTextStyle().bigText(body))
-    // Thread update timestamps can change while an approval remains pending.
-    // Leave the timer hidden until the payload has a stable phase-entry timestamp.
+    val shown = if (lineBreak >= 0 && rows.size != 1) body.subSequence(0, lineBreak) else body
+    builder.setContentText(shown).setStyle(NotificationCompat.BigTextStyle().bigText(body))
+    // ColorOS shows a chronometer in place of the text line, so the card carries no timer.
     builder.setShowWhen(false).setUsesChronometer(false)
   }
 
@@ -164,18 +178,21 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
     SpannableStringBuilder().apply {
       val status = ActivityPhase.forStatus(row.status)
       val color = ContextCompat.getColor(context, status?.color ?: R.color.agent_activity_waiting)
-      append(tinted(row.status, color, bold = true))
+      append(tinted(status?.label ?: row.status, color, bold = true))
       append(" ").append(row.title)
-      // Promoted cards drop text color, so the separator has to do the work of the dimming.
+      val dim = ContextCompat.getColor(context, R.color.agent_activity_waiting)
+      // Promoted cards drop most spans, so the separators carry the dimming.
       if (trailing.isNotBlank()) {
         val start = length
         append(" · ").append(trailing)
-        setSpan(
-          ForegroundColorSpan(ContextCompat.getColor(context, R.color.agent_activity_waiting)),
-          start,
-          length,
-          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
+        setSpan(ForegroundColorSpan(dim), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+      }
+      if (row.model.isNotBlank()) {
+        // The card shows two text lines; a taller line break widens the gap without a third line.
+        val gap = length
+        append("\n")
+        setSpan(RelativeSizeSpan(1.6f), gap, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        append(row.model)
       }
     }
 
