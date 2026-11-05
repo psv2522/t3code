@@ -33,6 +33,7 @@ import {
   pruneIncomingShareImports,
   startIncomingShareInbox,
 } from "./features/sharing/IncomingShareProvider";
+import { installLocalAgentWatch } from "./features/agent-awareness/localAgentWatch";
 import {
   installAgentNotificationNavigation,
   setAgentNotificationPathname,
@@ -212,6 +213,7 @@ const appServiceDisposers = [
   installComposerAttachmentUploads(),
   startIncomingShareInbox(),
   installAgentNotificationNavigation(linkToAppPath),
+  installLocalAgentWatch(),
   installAppShortcuts(linkToAppPath),
   installAppUpdateChecks(),
   installShowcaseCapture(rootPathnameFromState),
