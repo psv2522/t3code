@@ -6,7 +6,7 @@ import {
   type P2codeUpdateCall,
 } from "@t3tools/client-runtime/p2codeUpdate";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { P2codeUpdateResult } from "@t3tools/contracts";
+import type { EnvironmentId, P2codeUpdateResult } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { isElectron } from "../../env";
@@ -14,6 +14,7 @@ import { ensureLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { useServerConfigs } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { environmentPresentations } from "../../state/presentation";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -27,13 +28,23 @@ export function useP2codeUpdateProgress(): P2codeUpdateResult | null {
   return useAtomValue(p2codeUpdateProgressAtom);
 }
 
+function resolveP2codeEnvironmentId(
+  configs: ReturnType<typeof useServerConfigs>,
+  primaryId: EnvironmentId | null,
+): EnvironmentId | null {
+  const supports = (id: EnvironmentId) =>
+    configs.get(id)?.environment.capabilities.p2codeUpdate === true;
+  if (primaryId !== null && supports(primaryId)) return primaryId;
+  for (const id of configs.keys()) {
+    if (supports(id)) return id;
+  }
+  return null;
+}
+
 export function useP2codeAvailable(): boolean {
-  const environmentId = usePrimaryEnvironmentId();
+  const primaryId = usePrimaryEnvironmentId();
   const serverConfigs = useServerConfigs();
-  return (
-    environmentId != null &&
-    serverConfigs.get(environmentId)?.environment.capabilities.p2codeUpdate === true
-  );
+  return resolveP2codeEnvironmentId(serverConfigs, primaryId) !== null;
 }
 
 const report = (type: "info" | "error" | "success", title: string, description: string) =>
@@ -41,7 +52,10 @@ const report = (type: "info" | "error" | "success", title: string, description: 
 
 function makeCall(): P2codeUpdateCall {
   return async (action) => {
-    const environmentId = appAtomRegistry.get(primaryEnvironmentIdAtom);
+    const environmentId = resolveP2codeEnvironmentId(
+      appAtomRegistry.get(environmentPresentations.serverConfigsAtom),
+      appAtomRegistry.get(primaryEnvironmentIdAtom),
+    );
     if (environmentId === null) throw new Error("No T3 Code server is connected.");
     const result = await serverEnvironment.p2codeUpdate.run(appAtomRegistry, {
       environmentId,

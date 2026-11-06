@@ -175,6 +175,9 @@ on_exit() {
     fi
     write_status failed "${message:-The update failed. See $STEP_LOG.}" || true
   fi
+  if [[ "$DETACHED" -eq 1 ]]; then
+    launchctl remove "$JOB_LABEL" >/dev/null 2>&1 || true
+  fi
 }
 trap on_exit EXIT
 
