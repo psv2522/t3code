@@ -171,6 +171,10 @@ export const lazyProviderDriver = <Config, R, UsageR>(
           generation("generateReviewGuide").pipe(
             Effect.flatMap((text) => text.generateReviewGuide(request)),
           ),
+        generateTranscriptionPostProcessing: (request) =>
+          generation("generateTranscriptionPostProcessing").pipe(
+            Effect.flatMap((text) => text.generateTranscriptionPostProcessing(request)),
+          ),
       },
     } satisfies ProviderInstance;
   });
