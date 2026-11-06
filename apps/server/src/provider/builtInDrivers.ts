@@ -10,6 +10,7 @@ import { GrokSettings } from "@t3tools/provider-grok/settings";
 import type { KiroDriverEnv } from "@t3tools/provider-kiro/server";
 import { KiroSettings } from "@t3tools/provider-kiro/settings";
 import type { MuseDriverEnv } from "@t3tools/provider-muse/server";
+import { museUsageReader } from "@t3tools/provider-muse/server/usage";
 import { MuseSettings } from "@t3tools/provider-muse/settings";
 import type { OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
 import { openCodeUsageReader } from "@t3tools/provider-opencode/server/usage";
@@ -137,6 +138,7 @@ const MuseDriver = lazyProviderDriver({
   metadata: { displayName: "Muse Code", supportsMultipleInstances: true },
   configSchema: MuseSettings,
   defaultConfig: () => decodeMuseSettings({}),
+  usage: museUsageReader,
   load: () => import("@t3tools/provider-muse/server").then((m) => m.MuseDriver),
 });
 

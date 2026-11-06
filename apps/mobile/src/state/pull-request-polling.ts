@@ -12,6 +12,7 @@ function syncPolling(state: string | null | undefined) {
 }
 
 export function usePullRequestPollingWhileActive() {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors AppState into the polling atom while mounted
   useEffect(() => {
     syncPolling(AppState.currentState);
     const subscription = AppState.addEventListener("change", syncPolling);

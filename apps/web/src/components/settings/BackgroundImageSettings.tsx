@@ -37,13 +37,10 @@ export function BackgroundImageSettings() {
 
   const chooseImage = async (file: File) => {
     setIsLoading(true);
-    try {
-      await setMainBackgroundImage(file);
-    } catch (error) {
-      reportFailure("Couldn’t use that image", error);
-    } finally {
-      setIsLoading(false);
-    }
+    await setMainBackgroundImage(file).catch((error: unknown) =>
+      reportFailure("Couldn’t use that image", error),
+    );
+    setIsLoading(false);
   };
 
   return (

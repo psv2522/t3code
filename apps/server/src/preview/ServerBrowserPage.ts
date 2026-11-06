@@ -66,8 +66,10 @@ export const toOperationError = (
   }
   const ambiguous = /strict mode violation: .* resolved to (\d+) elements/i.exec(firstLine);
   if (ambiguous) {
-    return new ServerBrowserOperationError("PreviewAutomationInvalidSelectorError", firstLine, {
-      matchCount: Number(ambiguous[1]),
+    return new ServerBrowserOperationError({
+      tag: "PreviewAutomationInvalidSelectorError",
+      message: firstLine,
+      detail: { matchCount: Number(ambiguous[1]) },
     });
   }
   if (
@@ -172,11 +174,11 @@ export const explainTimeout = async (
     clearTimeout(timer),
   );
   return count === 0
-    ? new ServerBrowserOperationError(
-        "PreviewAutomationTimeoutError",
-        "No element matched the target.",
-        { noMatch: true },
-      )
+    ? new ServerBrowserOperationError({
+        tag: "PreviewAutomationTimeoutError",
+        message: "No element matched the target.",
+        detail: { noMatch: true },
+      })
     : cause;
 };
 

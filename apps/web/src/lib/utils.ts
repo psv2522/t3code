@@ -2,7 +2,7 @@ export { cn } from "./classNames";
 import { MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
 import * as Hex from "effect/encoding/Hex";
-import { DraftId } from "../composerDraftStore";
+import { DraftId } from "../draftId";
 
 export { isMacPlatform };
 

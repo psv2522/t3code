@@ -1,11 +1,8 @@
 const { withMainApplication } = require("expo/config-plugins");
 
-// Long threads scrolled during a streaming turn livelock Fabric's ShadowTree::commit
-// (Reanimated and scroll-state commits keep winning the race) until it asserts after
-// 1024 attempts and aborts the app. preventShadowTreeCommitExhaustion makes the JS commit
-// take the revision lock after a few failed attempts instead. loadReactNative has already
-// called ReactNativeFeatureFlags.override, which may only run once, so this force-overrides
-// on top of the same release-level provider before the React host reads any flag.
+// Fabric's ShadowTree::commit livelocks on long streaming threads and aborts after 1024
+// attempts. preventShadowTreeCommitExhaustion makes the JS commit take the revision lock instead.
+// loadReactNative already called override (once only), so force it on the release provider.
 const ANCHOR = "loadReactNative(this)";
 
 const OVERRIDE = `
