@@ -250,11 +250,13 @@ Files:
 
 ### Check for updates
 
-In the desktop app the sidebar update button, Settings → About "Check for Updates" and the native "Check for Updates…" menu item run the p2code check (`apps/desktop/src/ipc/methods/p2code.ts`, `apps/web/src/components/sidebar/p2codeUpdate.ts`, exposed as `desktopBridge.p2code`) whenever `~/.p2code/repo` exists; every `p2code build` writes it. Without it the menu item shows the stock "Updates unavailable" dialog.
+The web/desktop sidebar update button, Settings → About "Check for Updates", the native "Check for Updates…" menu item and the mobile environment settings "T3 Code" section all call the server RPC `server.p2codeUpdate` (`apps/server/src/p2code/P2codeUpdate.ts`, client side `packages/client-runtime/src/p2codeUpdate.ts`). The server advertises `capabilities.p2codeUpdate` on macOS when `~/.p2code/repo` names a checkout with `scripts/p2code-update.sh`; every `p2code build` writes it. Without the capability the stock upstream update flow shows. The RPC needs the environment maintain scope and runs the script on the server's machine, so a phone updates the Mac's server.
 
-- Click runs `scripts/p2code-update.sh --check`: fetches `origin/main` and prints JSON (`upstreamCommits`, `localChanges`, `dirty`). `localChanges` means `p2code/custom` differs from `~/.p2code/installed-head`. The check changes nothing but remote-tracking refs.
-- Nothing pending: an "up to date" toast and nothing else. Uncommitted changes in the repo: a toast asking to commit first.
-- Something pending: a confirm dialog, then `~/.p2code/run/update.command` opens in Terminal and runs `p2code-update.sh`, which installs without a prompt (the restart and logs live there). The app never builds or installs by itself, because install restarts the server and quits the app.
+- `check` runs `scripts/p2code-update.sh --check`: fetches `origin/main` and prints JSON (`upstreamCommits`, `localChanges`, `dirty`). `localChanges` means `p2code/custom` differs from `~/.p2code/installed-head`. The check changes nothing but remote-tracking refs.
+- Nothing pending: an "up to date" notice. Uncommitted changes in the repo: a notice asking to commit first.
+- Something pending: a confirm dialog, then `start` runs `p2code-update.sh --launch`. That submits `--detached` to launchd as `com.p2code.update` (log `~/.p2code/update.log`), outside the server's process tree, so it survives the install restart. No Terminal window opens. It syncs, builds, installs with `--relaunch` (the desktop app is quit and reopened), and the clients poll `status` every 2s, tolerating the gap while the server restarts.
+- Progress lives in `~/.p2code/run/update-status.json` (`phase`: idle, syncing, building, installing, conflict, done, failed; plus `message`, `threadId`, `version`). `--status` marks a running phase as failed when the lock pid is dead and the file is stale.
+- Rebase conflicts: the detached job aborts the rebase and starts a thread with `t3 thread start` on `claudeAgent` / `claude-sonnet-5-5` (its default effort is high). The thread resolves the conflicts, finishes the rebase, and ends by running `scripts/p2code-update.sh --launch` to resume. The status becomes `conflict` with the thread id until then.
 - `p2code-update.sh` keeps a pid lock (`~/.p2code/update.lock`), so a second click cannot start a parallel update.
 - The electron-updater flow stays disabled in this build.
 
@@ -305,7 +307,7 @@ The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB M
 
 ### Rules for agents
 
-- Never run `p2code install`, `p2code rollback`, `p2code update` (without `--no-install`), or `t3 update`/service restarts from inside T3 Code. Agent sessions run under the background server that those commands restart and the desktop app they quit. `scripts/p2code.sh in-t3` detects this. Build with `p2code update --no-install` and tell the owner to run `p2code install` in a plain terminal.
+- Never run `p2code install`, `p2code rollback`, `p2code update` (without `--no-install`), or `t3 update`/service restarts from inside T3 Code. Agent sessions run under the background server that those commands restart and the desktop app they quit. `scripts/p2code.sh in-t3` detects this. Build with `p2code update --no-install` and tell the owner to run `p2code install` in a plain terminal. The one exception is `scripts/p2code-update.sh --launch`, which hands the whole update to launchd outside T3's process tree; the conflict thread runs it as its last step, and nothing else should.
 - Never use `sudo`; the scripts refuse to run as root. A root run creates a second T3 installation and root-owned files.
 - Commit before building. The build refuses a dirty tree. Do not run a build while rebasing or switching branches; the build reads the working tree.
 - Do not edit `scripts/p2code*.sh` while a run is in flight. Bash reads scripts incrementally and a mid-run change causes bogus syntax errors. Keep `main "$@"; exit $?` at the end of `p2code.sh` and the outer brace group with `exit 0` in `p2code-update.sh`.

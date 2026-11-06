@@ -308,8 +308,7 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
         void router.navigate({ to: "/settings" });
     }),
     registerMenuAction("p2code-check-for-updates", () => {
-      const p2code = window.desktopBridge?.p2code;
-      if (p2code) void checkAndStartP2codeUpdate(p2code);
+      void checkAndStartP2codeUpdate();
     }),
   ];
   return () => {

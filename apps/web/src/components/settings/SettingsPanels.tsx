@@ -249,10 +249,10 @@ function AboutVersionSection() {
       return;
     }
 
-    if (p2codeAvailable && bridge.p2code) {
+    if (p2codeAvailable) {
       if (isUpdateActionPending) return;
       setIsUpdateActionPending(true);
-      void checkAndStartP2codeUpdate(bridge.p2code).finally(() => setIsUpdateActionPending(false));
+      void checkAndStartP2codeUpdate().finally(() => setIsUpdateActionPending(false));
       return;
     }
 

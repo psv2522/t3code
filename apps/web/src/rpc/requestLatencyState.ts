@@ -38,6 +38,7 @@ const longRunningRpcAckMethods = new Set<string>([
   WS_METHODS.serverUpdateProvider,
   WS_METHODS.serverRefreshProviders,
   WS_METHODS.serverUpdateServer,
+  WS_METHODS.serverP2codeUpdate,
   WS_METHODS.vcsRefreshStatus,
 ]);
 

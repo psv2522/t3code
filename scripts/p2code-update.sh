@@ -11,6 +11,11 @@ PUSH_REMOTE="fork"
 WORK_BRANCH="p2code/custom"
 STATE_FILE="$OUT_ROOT/installed-head"
 BUILD_SCRIPT="$REPO/scripts/p2code.sh"
+LOCK_FILE="$OUT_ROOT/update.lock"
+JOB_LABEL="com.p2code.update"
+JOB_LOG="$OUT_ROOT/update.log"
+CONFLICT_PROVIDER="claudeAgent"
+CONFLICT_MODEL="claude-sonnet-5-5"
 
 source "$REPO/scripts/p2code-lib.sh"
 
@@ -20,6 +25,9 @@ Usage: p2code update [options]
 
 Sync the fork with pingdotgg/t3code main, rebase local changes, push, then build and install.
 
+  --launch       Start the whole update as a background job that survives the server and app
+                 restarting; progress is readable with --status
+  --status       Print the background update's state as JSON
   --sync-only    Sync, rebase, push and check; do not build or install
   --no-install   Sync, push, check and build; do not install
   --no-push      Do not push main and $WORK_BRANCH to $PUSH_REMOTE
@@ -29,6 +37,7 @@ Sync the fork with pingdotgg/t3code main, rebase local changes, push, then build
   -h, --help     Show this help
 
 Inside T3 Code the install step is skipped automatically; finish with: p2code install
+Use --launch to update from inside T3 Code.
 EOF
 }
 
@@ -37,6 +46,9 @@ NO_INSTALL=0
 PUSH=1
 FORCE=0
 CHECK=0
+LAUNCH=0
+STATUS=0
+DETACHED=0
 for arg in "$@"; do
   case "$arg" in
     --sync-only) SYNC_ONLY=1 ;;
@@ -44,6 +56,9 @@ for arg in "$@"; do
     --no-push) PUSH=0 ;;
     --force) FORCE=1 ;;
     --check) CHECK=1 ;;
+    --launch) LAUNCH=1 ;;
+    --status) STATUS=1 ;;
+    --detached) DETACHED=1 ;;
     --verbose|-v) VERBOSE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown option: $arg" ;;
@@ -51,6 +66,54 @@ for arg in "$@"; do
 done
 
 [[ "$EUID" -ne 0 ]] || die "Do not run this with sudo."
+
+job_alive() {
+  if [[ -f "$LOCK_FILE" ]] && kill -0 "$(cat "$LOCK_FILE")" 2>/dev/null; then
+    return 0
+  fi
+  case "$(status_field phase)" in
+    syncing|building|installing)
+      local updated
+      updated="$(status_field updatedAt)"
+      [[ $(( $(date +%s) - ${updated:-0} )) -ge 30 ]] || return 0
+      ;;
+  esac
+  return 1
+}
+
+if [[ "$STATUS" -eq 1 ]]; then
+  if [[ ! -f "$STATUS_FILE" ]]; then
+    status_json idle ""
+  else
+    case "$(status_field phase)" in
+      syncing|building|installing)
+        if job_alive; then
+          cat "$STATUS_FILE"
+        else
+          status_json failed "The update stopped unexpectedly. See $JOB_LOG."
+        fi
+        ;;
+      *) cat "$STATUS_FILE" ;;
+    esac
+  fi
+  printf '\n'
+  exit 0
+fi
+
+if [[ "$LAUNCH" -eq 1 ]]; then
+  cd "$REPO"
+  job_alive && die "An update is already running."
+  [[ "$(uname -s)" == "Darwin" ]] || die "p2code updates are only supported on macOS."
+  git diff --quiet && git diff --cached --quiet ||
+    die "Working tree has uncommitted changes in $REPO. Commit or stash them first."
+  mkdir -p "$OUT_ROOT"
+  write_status syncing "Starting the update"
+  launchctl remove "$JOB_LABEL" >/dev/null 2>&1 || true
+  launchctl submit -l "$JOB_LABEL" -o "$JOB_LOG" -e "$JOB_LOG" -- \
+    /bin/zsh -ilc "exec $(printf '%q' "$REPO/scripts/p2code-update.sh") --detached" ||
+    { write_status failed "Could not start the background update job."; die "launchctl could not submit the update job."; }
+  exit 0
+fi
 
 if [[ "$CHECK" -eq 1 ]]; then
   export GIT_TERMINAL_PROMPT=0
@@ -76,15 +139,28 @@ if [[ "$CHECK" -eq 1 ]]; then
 fi
 
 mkdir -p "$OUT_ROOT"
-LOCK_FILE="$OUT_ROOT/update.lock"
 if [[ -f "$LOCK_FILE" ]] && kill -0 "$(cat "$LOCK_FILE")" 2>/dev/null; then
   die "Another p2code update is already running (pid $(cat "$LOCK_FILE"))."
 fi
 printf '%s' "$$" > "$LOCK_FILE"
-trap 'rm -f "$LOCK_FILE"' EXIT
+
+TERMINAL_STATUS_WRITTEN=0
+on_exit() {
+  local code=$?
+  rm -f "$LOCK_FILE"
+  if [[ "$code" -ne 0 && "$TERMINAL_STATUS_WRITTEN" -eq 0 ]]; then
+    local message=""
+    if [[ "$DETACHED" -eq 1 ]]; then
+      message="$(sed -n 's/^ERROR: //p' "$JOB_LOG" 2>/dev/null | tail -n 1)"
+    fi
+    write_status failed "${message:-The update failed. See $STEP_LOG.}" || true
+  fi
+}
+trap on_exit EXIT
 
 export P2CODE_VERBOSE="$VERBOSE"
 init_step_log "$OUT_ROOT/sync.log"
+write_status syncing "Syncing with upstream"
 
 cd "$REPO"
 
@@ -145,6 +221,32 @@ rebase_onto_main() {
   return 1
 }
 
+conflict_prompt() {
+  cat <<EOF
+The p2code update stopped: rebasing $WORK_BRANCH onto main hit conflicts in:
+$1
+
+Resolve them and continue the update. This thread runs in the repo, $REPO.
+
+1. Check \`git status\`. The tree should be clean on $WORK_BRANCH (the update aborted its rebase). If a rebase is somehow in progress, continue it instead of starting over.
+2. Run \`git rebase main\`. For each conflict keep upstream's new behavior and re-apply what the carried commit was for: read \`git show REBASE_HEAD\` and the "p2code: the owner's build" section of AGENTS.md. Never drop a carried change just to make the conflict go away. If upstream shipped the equivalent of a carried commit, drop that commit instead.
+3. For pnpm-lock.yaml take main's copy (\`git checkout HEAD -- pnpm-lock.yaml\`), run \`pnpm install --lockfile-only\` with \`pnpm_config_pm_on_fail=download\` in the environment, then \`git add\` it.
+4. \`git add\` the resolved files and run \`GIT_EDITOR=true git rebase --continue\` until the rebase finishes. rerere is enabled, so the resolutions are recorded for next time.
+5. Confirm \`git status\` is clean and you are on $WORK_BRANCH.
+6. Your last action: run \`scripts/p2code-update.sh --launch\`. It starts the rest of the update (checks, push, build, install) as a separate background job. The install restarts the T3 Code server, which ends this session, so do not wait for it. Do not run \`p2code install\`, \`p2code update\`, \`p2code rollback\` or \`t3 update\` yourself.
+
+If a conflict cannot be resolved safely, stop and explain what blocks you instead of guessing.
+EOF
+}
+
+spawn_conflict_thread() {
+  local t3_bin="$HOME/.local/bin/t3"
+  [[ -x "$t3_bin" ]] || return 1
+  conflict_prompt "$1" | "$t3_bin" thread start "$REPO" - \
+    --title "p2code update: resolve rebase conflicts" \
+    --provider "$CONFLICT_PROVIDER" --model "$CONFLICT_MODEL" 2>>"$STEP_LOG" | tail -n 1
+}
+
 git config rerere.enabled true
 git config rerere.autoUpdate true
 
@@ -154,6 +256,17 @@ if ! rebase_onto_main; then
   conflicts="$(git diff --name-only --diff-filter=U || true)"
   git rebase --abort || true
   printf '%s\n' "$conflicts" | sed 's/^/  conflict: /'
+  if [[ "$DETACHED" -eq 1 ]]; then
+    TERMINAL_STATUS_WRITTEN=1
+    thread_id="$(spawn_conflict_thread "$conflicts" || true)"
+    if [[ -n "$thread_id" ]]; then
+      write_status conflict "Rebase conflicts in: $(printf '%s' "$conflicts" | paste -sd, -)" "$thread_id"
+      printf 'Started thread %s to resolve the conflicts.\n' "$thread_id"
+      exit 0
+    fi
+    write_status failed "Rebase conflicts, and the resolver thread could not start. Resolve by hand: cd $REPO && git rebase main"
+    exit 1
+  fi
   die "Rebase hit conflicts and was aborted; the repo is back where it was. Resolve by hand (recorded resolutions replay): cd $REPO && git rebase main. Log: $STEP_LOG"
 fi
 head="$(git rev-parse HEAD)"
@@ -189,32 +302,46 @@ fi
 
 if [[ "$SYNC_ONLY" -eq 1 ]]; then
   log "Synced (sync-only)"
+  TERMINAL_STATUS_WRITTEN=1
+  write_status done "Synced; nothing was built." "" ""
   exit 0
 fi
 
 if [[ "$head" == "$installed" && "$FORCE" -eq 0 ]]; then
   log "Already up to date: the installed build is $(git log --oneline -1)"
+  TERMINAL_STATUS_WRITTEN=1
+  write_status done "Already up to date." "" ""
   exit 0
 fi
 
 install_after=1
 if [[ "$NO_INSTALL" -eq 1 ]]; then
   install_after=0
-elif "$BUILD_SCRIPT" in-t3; then
+elif [[ "$DETACHED" -eq 0 ]] && "$BUILD_SCRIPT" in-t3; then
   install_after=0
-  printf '\nRunning inside T3 Code: building only. Installing restarts the server and app, so finish from a plain terminal.\n'
+  printf '\nRunning inside T3 Code: building only. Installing restarts the server and app, so finish from a plain terminal with p2code install, or use the in-app update button.\n'
 fi
 
+write_status building "Building the server and desktop app"
 "$BUILD_SCRIPT" build
 
 if [[ "$install_after" -eq 0 ]]; then
   log "Built. To install: p2code install"
+  TERMINAL_STATUS_WRITTEN=1
+  write_status done "Built; run p2code install to finish." "" ""
   exit 0
 fi
 
-"$BUILD_SCRIPT" install --yes
+write_status installing "Installing; T3 Code restarts"
+if [[ "$DETACHED" -eq 1 ]]; then
+  "$BUILD_SCRIPT" install --yes --relaunch
+else
+  "$BUILD_SCRIPT" install --yes
+fi
 
 printf '%s' "$head" > "$STATE_FILE"
+TERMINAL_STATUS_WRITTEN=1
+write_status done "Updated to $(git log --oneline -1)" "" "$(cat "$OUT_ROOT/current" 2>/dev/null || true)"
 log "p2code is up to date at $(git log --oneline -1)"
 
 exit 0

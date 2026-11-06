@@ -29,7 +29,9 @@ usage() {
 Usage: scripts/p2code.sh <command> [options]
 
   build                 Build the CLI archive and desktop app, verify them, stage a local release
-  install [--yes]       Back up, then switch the background server and desktop app to the latest build
+  install [--yes] [--relaunch]
+                        Back up, then switch the background server and desktop app to the latest build;
+                        --relaunch reopens the app afterwards if it was running
   all [--yes]           build, then install
   rollback [--yes]      Restore the app and background server from the latest backup
   setup-signing         Create the self-signed certificate the desktop app is signed with (once)
@@ -330,6 +332,7 @@ quit_app() {
   local pattern
   pattern="$(printf '%s' "$APPS_DIR/$INSTALLED_APP_NAME.app/Contents/MacOS/" | sed 's/[()]/\\&/g')"
   pgrep -f "$pattern" >/dev/null 2>&1 || return 0
+  APP_WAS_RUNNING=1
   begin "Quitting $INSTALLED_APP_NAME"
   osascript -e "tell application \"$INSTALLED_APP_NAME\" to quit" >/dev/null 2>&1 || true
   local waited=0
@@ -495,6 +498,10 @@ cmd_install() {
   xattr -cr "$APPS_DIR/$INSTALLED_APP_NAME.app"
   end
 
+  if [[ "$RELAUNCH_APP" == "1" && "$APP_WAS_RUNNING" == "1" ]]; then
+    open "$APPS_DIR/$INSTALLED_APP_NAME.app" || true
+  fi
+
   if [[ -f "$build_dir/source-head" ]]; then
     cp "$build_dir/source-head" "$OUT_ROOT/installed-head"
   fi
@@ -603,10 +610,13 @@ main() {
   local command="${1:-}"
   shift || true
   ASSUME_YES=0
+  RELAUNCH_APP=0
+  APP_WAS_RUNNING=0
   local arg
   for arg in "$@"; do
     case "$arg" in
       --yes|-y) ASSUME_YES=1 ;;
+      --relaunch) RELAUNCH_APP=1 ;;
       --verbose|-v) VERBOSE=1 ;;
       --dry-run|-n) REQUEST_DRY_RUN=1 ;;
       *) die "Unknown option: $arg" ;;
