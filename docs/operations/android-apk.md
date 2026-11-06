@@ -56,7 +56,8 @@ into the build checkout's `.env`, preserving existing assignments. Existing
 sign-in configuration fails validation. No private EAS credentials are needed.
 
 Each revision gets a frozen, filtered workspace install with its exact pinned
-pnpm. Native inputs, environment, and tool changes trigger clean Expo generation
+pnpm. The mobile typecheck then runs on every build and a failure stops it before
+Expo generation or Gradle. Native inputs, environment, and tool changes trigger clean Expo generation
 while preserving only `android/.gradle` and `android/app/.cxx`. Generated build
 outputs are discarded on regeneration. Unchanged native inputs skip prebuild.
 Each invocation gets a separate disk-backed Metro temp directory, removed on

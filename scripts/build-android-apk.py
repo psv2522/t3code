@@ -356,6 +356,8 @@ def main():
     if installed.get('sha') != source['sha'] or not (mobile / 'node_modules').exists():
         run([pnpm, 'install', '--filter=@t3tools/mobile...', '--frozen-lockfile'], cwd=checkout, env=env)
         write_json(stamp, {'sha': source['sha'], **versions})
+    print('Typechecking mobile', flush=True)
+    run([pnpm, 'run', 'typecheck'], cwd=mobile, env=env)
     requirements = tomllib.loads((mobile / 'node_modules/react-native/gradle/libs.versions.toml').read_text())['versions']
     requirements = {k: requirements[k] for k in ['compileSdk', 'buildTools', 'ndkVersion', 'agp']}
     requirements['cmake'] = env.get('CMAKE_VERSION', '3.22.1')
