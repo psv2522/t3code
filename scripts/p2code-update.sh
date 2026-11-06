@@ -16,6 +16,7 @@ JOB_LABEL="com.p2code.update"
 JOB_LOG="$OUT_ROOT/update.log"
 CONFLICT_PROVIDER="claudeAgent"
 CONFLICT_MODEL="claude-sonnet-5-5"
+CONFLICT_THREAD_FILE="$OUT_ROOT/run/conflict-thread"
 
 source "$REPO/scripts/p2code-lib.sh"
 
@@ -27,6 +28,7 @@ Sync the fork with pingdotgg/t3code main, rebase local changes, push, then build
 
   --launch       Start the whole update as a background job that survives the server and app
                  restarting; progress is readable with --status
+  --relaunch     With --launch: reopen the desktop app after the install (it is closed otherwise)
   --status       Print the background update's state as JSON
   --sync-only    Sync, rebase, push and check; do not build or install
   --no-install   Sync, push, check and build; do not install
@@ -49,6 +51,8 @@ CHECK=0
 LAUNCH=0
 STATUS=0
 DETACHED=0
+RELAUNCH=0
+RESUME=0
 for arg in "$@"; do
   case "$arg" in
     --sync-only) SYNC_ONLY=1 ;;
@@ -59,6 +63,8 @@ for arg in "$@"; do
     --launch) LAUNCH=1 ;;
     --status) STATUS=1 ;;
     --detached) DETACHED=1 ;;
+    --relaunch) RELAUNCH=1 ;;
+    --resume) RESUME=1 ;;
     --verbose|-v) VERBOSE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown option: $arg" ;;
@@ -79,6 +85,14 @@ job_alive() {
       ;;
   esac
   return 1
+}
+
+conflict_thread_running() {
+  local id state
+  id="$(cat "$CONFLICT_THREAD_FILE" 2>/dev/null || true)"
+  [[ -n "$id" && -x "$HOME/.local/bin/t3" ]] || return 1
+  state="$("$HOME/.local/bin/t3" thread show "$id" 2>/dev/null | sed -n 2p | awk '{print $2}')"
+  [[ "$state" == "running" ]]
 }
 
 if [[ "$STATUS" -eq 1 ]]; then
@@ -103,14 +117,20 @@ fi
 if [[ "$LAUNCH" -eq 1 ]]; then
   cd "$REPO"
   job_alive && die "An update is already running."
+  if [[ "$RESUME" -eq 0 ]] && conflict_thread_running; then
+    die "Thread $(cat "$CONFLICT_THREAD_FILE") is still resolving rebase conflicts; it continues the update when it is done."
+  fi
   [[ "$(uname -s)" == "Darwin" ]] || die "p2code updates are only supported on macOS."
   git diff --quiet && git diff --cached --quiet ||
     die "Working tree has uncommitted changes in $REPO. Commit or stash them first."
   mkdir -p "$OUT_ROOT"
   write_status syncing "Starting the update"
   launchctl remove "$JOB_LABEL" >/dev/null 2>&1 || true
+  job_args="--detached"
+  [[ "$RELAUNCH" -eq 0 ]] || job_args="$job_args --relaunch"
+  [[ "$RESUME" -eq 0 ]] || job_args="$job_args --resume"
   launchctl submit -l "$JOB_LABEL" -o "$JOB_LOG" -e "$JOB_LOG" -- \
-    /bin/zsh -ilc "exec $(printf '%q' "$REPO/scripts/p2code-update.sh") --detached" ||
+    /bin/zsh -ilc "exec $(printf '%q' "$REPO/scripts/p2code-update.sh") $job_args" ||
     { write_status failed "Could not start the background update job."; die "launchctl could not submit the update job."; }
   exit 0
 fi
@@ -222,6 +242,8 @@ rebase_onto_main() {
 }
 
 conflict_prompt() {
+  local RESUME_COMMAND="scripts/p2code-update.sh --launch --resume"
+  [[ "$RELAUNCH" -eq 0 ]] || RESUME_COMMAND="$RESUME_COMMAND --relaunch"
   cat <<EOF
 The p2code update stopped: rebasing $WORK_BRANCH onto main hit conflicts in:
 $1
@@ -233,18 +255,23 @@ Resolve them and continue the update. This thread runs in the repo, $REPO.
 3. For pnpm-lock.yaml take main's copy (\`git checkout HEAD -- pnpm-lock.yaml\`), run \`pnpm install --lockfile-only\` with \`pnpm_config_pm_on_fail=download\` in the environment, then \`git add\` it.
 4. \`git add\` the resolved files and run \`GIT_EDITOR=true git rebase --continue\` until the rebase finishes. rerere is enabled, so the resolutions are recorded for next time.
 5. Confirm \`git status\` is clean and you are on $WORK_BRANCH.
-6. Your last action: run \`scripts/p2code-update.sh --launch\`. It starts the rest of the update (checks, push, build, install) as a separate background job. The install restarts the T3 Code server, which ends this session, so do not wait for it. Do not run \`p2code install\`, \`p2code update\`, \`p2code rollback\` or \`t3 update\` yourself.
+6. Run \`$RESUME_COMMAND\`. It starts the rest of the update (checks, push, build, install) as a separate background job. The install restarts the T3 Code server, which ends this session, so do not wait for it. Do not run \`p2code install\`, \`p2code update\`, \`p2code rollback\` or \`t3 update\` yourself. Do not start any other thread.
+7. Your last action, once step 6 succeeded: settle this thread with the \`t3_thread_organize\` tool (\`action: "settle"\`).
 
 If a conflict cannot be resolved safely, stop and explain what blocks you instead of guessing.
 EOF
 }
 
 spawn_conflict_thread() {
-  local t3_bin="$HOME/.local/bin/t3"
+  local t3_bin="$HOME/.local/bin/t3" id
   [[ -x "$t3_bin" ]] || return 1
-  conflict_prompt "$1" | "$t3_bin" thread start "$REPO" - \
+  id="$(conflict_prompt "$1" | "$t3_bin" thread start "$REPO" - \
     --title "p2code update: resolve rebase conflicts" \
-    --provider "$CONFLICT_PROVIDER" --model "$CONFLICT_MODEL" 2>>"$STEP_LOG" | tail -n 1
+    --provider "$CONFLICT_PROVIDER" --model "$CONFLICT_MODEL" 2>>"$STEP_LOG" | tail -n 1)"
+  [[ -n "$id" ]] || return 1
+  mkdir -p "$(dirname "$CONFLICT_THREAD_FILE")"
+  printf '%s' "$id" > "$CONFLICT_THREAD_FILE"
+  printf '%s' "$id"
 }
 
 git config rerere.enabled true
@@ -258,10 +285,22 @@ if ! rebase_onto_main; then
   printf '%s\n' "$conflicts" | sed 's/^/  conflict: /'
   if [[ "$DETACHED" -eq 1 ]]; then
     TERMINAL_STATUS_WRITTEN=1
-    thread_id="$(spawn_conflict_thread "$conflicts" || true)"
+    if [[ -z "$conflicts" ]]; then
+      write_status failed "The rebase failed without conflicts. See $STEP_LOG."
+      exit 1
+    fi
+    if [[ "$RESUME" -eq 1 ]]; then
+      write_status failed "Conflicts remain after the resolver thread $(cat "$CONFLICT_THREAD_FILE" 2>/dev/null || true) finished: $(printf '%s' "$conflicts" | paste -sd, -)" "$(cat "$CONFLICT_THREAD_FILE" 2>/dev/null || true)"
+      exit 1
+    fi
+    if conflict_thread_running; then
+      thread_id="$(cat "$CONFLICT_THREAD_FILE")"
+    else
+      thread_id="$(spawn_conflict_thread "$conflicts" || true)"
+    fi
     if [[ -n "$thread_id" ]]; then
       write_status conflict "Rebase conflicts in: $(printf '%s' "$conflicts" | paste -sd, -)" "$thread_id"
-      printf 'Started thread %s to resolve the conflicts.\n' "$thread_id"
+      printf 'Conflict thread %s is resolving the conflicts.\n' "$thread_id"
       exit 0
     fi
     write_status failed "Rebase conflicts, and the resolver thread could not start. Resolve by hand: cd $REPO && git rebase main"
@@ -309,6 +348,7 @@ fi
 
 if [[ "$head" == "$installed" && "$FORCE" -eq 0 ]]; then
   log "Already up to date: the installed build is $(git log --oneline -1)"
+  rm -f "$CONFLICT_THREAD_FILE"
   TERMINAL_STATUS_WRITTEN=1
   write_status done "Already up to date." "" ""
   exit 0
@@ -333,11 +373,12 @@ if [[ "$install_after" -eq 0 ]]; then
 fi
 
 write_status installing "Installing; T3 Code restarts"
-if [[ "$DETACHED" -eq 1 ]]; then
+if [[ "$RELAUNCH" -eq 1 ]]; then
   "$BUILD_SCRIPT" install --yes --relaunch
 else
   "$BUILD_SCRIPT" install --yes
 fi
+rm -f "$CONFLICT_THREAD_FILE"
 
 printf '%s' "$head" > "$STATE_FILE"
 TERMINAL_STATUS_WRITTEN=1

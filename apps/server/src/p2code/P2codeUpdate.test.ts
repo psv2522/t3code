@@ -18,6 +18,7 @@ const run = (
   flagOutputs: Record<string, { code: number; stdout: string; stderr?: string }>,
   action: Parameters<P2codeUpdate.P2codeUpdate["Service"]["run"]>[0],
   setUp = true,
+  relaunchApp?: boolean,
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -36,7 +37,7 @@ const run = (
           Layer.succeed(ProcessRunner.ProcessRunner, {
             run: (input) => {
               const flag = input.args[1] ?? "";
-              calls.push(flag);
+              calls.push(input.args.slice(1).join(" "));
               const output = flagOutputs[flag] ?? { code: 1, stdout: "" };
               return Effect.succeed({
                 code: output.code,
@@ -50,7 +51,7 @@ const run = (
         ),
       ),
     );
-    return { result: yield* Effect.exit(service.run(action)), calls };
+    return { result: yield* Effect.exit(service.run(action, relaunchApp)), calls };
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
 it.effect("check merges the check result with the running job status", () =>
@@ -91,6 +92,17 @@ it.effect("start launches the job and reports its status", () =>
     );
     expect(calls).toEqual(["--launch", "--status"]);
     expect(result._tag === "Success" && result.value.phase).toBe("syncing");
+  }),
+);
+
+it.effect("start asks the job to reopen the desktop app only when told to", () =>
+  Effect.gen(function* () {
+    const outputs = {
+      "--launch": { code: 0, stdout: "" },
+      "--status": { code: 0, stdout: statusJson("syncing") },
+    };
+    const { calls } = yield* run(outputs, "start", true, true);
+    expect(calls).toEqual(["--launch --relaunch", "--status"]);
   }),
 );
 

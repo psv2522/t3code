@@ -5,7 +5,11 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 export const P2codeUpdateAction = Schema.Literals(["check", "status", "start"]);
 export type P2codeUpdateAction = typeof P2codeUpdateAction.Type;
 
-export const P2codeUpdateInput = Schema.Struct({ action: P2codeUpdateAction });
+export const P2codeUpdateInput = Schema.Struct({
+  action: P2codeUpdateAction,
+  /** With `start`: reopen the desktop app after the install. Only the desktop app asks. */
+  relaunchApp: Schema.optionalKey(Schema.Boolean),
+});
 export type P2codeUpdateInput = typeof P2codeUpdateInput.Type;
 
 export const P2codeUpdatePhase = Schema.Literals([

@@ -75,6 +75,7 @@ export class P2codeUpdate extends Context.Service<
   {
     readonly run: (
       action: P2codeUpdateAction,
+      relaunchApp?: boolean,
     ) => Effect.Effect<P2codeUpdateResult, P2codeUpdateError>;
   }
 >()("t3/p2code/P2codeUpdate") {}
@@ -93,11 +94,12 @@ export const make = Effect.gen(function* () {
   const invoke = Effect.fn("P2codeUpdate.invoke")(function* (
     script: string,
     flag: "--check" | "--status" | "--launch",
+    extra: ReadonlyArray<string> = [],
   ) {
     const output = yield* runner
       .run({
         command: "/bin/bash",
-        args: [script, flag],
+        args: [script, flag, ...extra],
         timeout: flag === "--check" ? CHECK_TIMEOUT : COMMAND_TIMEOUT,
       })
       .pipe(Effect.mapError(() => fail("Could not run the p2code update script.")));
@@ -114,20 +116,22 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  const run: P2codeUpdate["Service"]["run"] = Effect.fn("P2codeUpdate.run")(function* (action) {
-    const script = Option.getOrUndefined(yield* resolveScript);
-    if (script === undefined) return yield* fail("p2code is not set up on this machine.");
-    const noCheck = { upstreamCommits: null, localChanges: null, dirty: null } as const;
-    if (action === "status") return { ...(yield* status(script)), ...noCheck };
-    if (action === "start") {
-      yield* invoke(script, "--launch");
-      return { ...(yield* status(script)), ...noCheck };
-    }
-    const check = yield* decodeCheck(yield* invoke(script, "--check")).pipe(
-      Effect.mapError(() => fail("The update check returned an unreadable result.")),
-    );
-    return { ...(yield* status(script)), ...check };
-  });
+  const run: P2codeUpdate["Service"]["run"] = Effect.fn("P2codeUpdate.run")(
+    function* (action, relaunchApp) {
+      const script = Option.getOrUndefined(yield* resolveScript);
+      if (script === undefined) return yield* fail("p2code is not set up on this machine.");
+      const noCheck = { upstreamCommits: null, localChanges: null, dirty: null } as const;
+      if (action === "status") return { ...(yield* status(script)), ...noCheck };
+      if (action === "start") {
+        yield* invoke(script, "--launch", relaunchApp === true ? ["--relaunch"] : []);
+        return { ...(yield* status(script)), ...noCheck };
+      }
+      const check = yield* decodeCheck(yield* invoke(script, "--check")).pipe(
+        Effect.mapError(() => fail("The update check returned an unreadable result.")),
+      );
+      return { ...(yield* status(script)), ...check };
+    },
+  );
 
   return P2codeUpdate.of({ run });
 });

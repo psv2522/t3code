@@ -9,6 +9,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import type { P2codeUpdateResult } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
+import { isElectron } from "../../env";
 import { ensureLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { useServerConfigs } from "../../state/entities";
@@ -44,7 +45,7 @@ function makeCall(): P2codeUpdateCall {
     if (environmentId === null) throw new Error("No T3 Code server is connected.");
     const result = await serverEnvironment.p2codeUpdate.run(appAtomRegistry, {
       environmentId,
-      input: { action },
+      input: action === "start" && isElectron ? { action, relaunchApp: true } : { action },
     });
     if (result._tag !== "Success") throw squashAtomCommandFailure(result);
     return result.value;
