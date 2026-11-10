@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
-  attachP2codeUpdate,
+  createP2codeUpdateWatcher,
   describeP2codeUpdate,
   resolveP2codeCheck,
   watchP2codeUpdate,
@@ -20,66 +20,63 @@ import { ensureLocalApi } from "../../localApi";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { useServerConfigs } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import { environmentPresentations } from "../../state/presentation";
+import { environmentPresentations, useEnvironmentPresentation } from "../../state/presentation";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
-const p2codeUpdateProgressAtom = Atom.make<P2codeUpdateResult | null>(null).pipe(
-  Atom.keepAlive,
-  Atom.withLabel("web-p2code-update-progress"),
+const p2codeUpdateProgressAtom = Atom.family((environmentId: EnvironmentId | null) =>
+  Atom.make<P2codeUpdateResult | null>(null).pipe(
+    Atom.keepAlive,
+    Atom.withLabel(`web-p2code-update-progress:${environmentId}`),
+  ),
 );
+const activeWatches = new Map<EnvironmentId, ReturnType<typeof createP2codeUpdateWatcher>>();
 
 export function useP2codeUpdateProgress(): P2codeUpdateResult | null {
   const primaryId = usePrimaryEnvironmentId();
   const configs = useServerConfigs();
   const environmentId = resolveP2codeEnvironmentId(configs, primaryId);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows a server-side update until unmount
+  const { presentation } = useEnvironmentPresentation(environmentId);
+  const connectionPhase = presentation?.connection.phase;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the selected server's update job while the client is visible
   useEffect(() => {
-    if (environmentId === null || inFlight) return;
-    inFlight = true;
-    const controller = new AbortController();
-    activeWatch = controller;
-    let wasRunning = false;
-    void attachP2codeUpdate({
+    if (environmentId === null) return;
+    const watcher = createP2codeUpdateWatcher({
       call: makeCall(environmentId),
+      active: document.visibilityState !== "hidden",
       onProgress: (progress) => {
         if (isP2codeUpdateRunning(progress.phase)) {
-          wasRunning = true;
-          rememberReportedFailure(null);
+          rememberReportedFailure(environmentId, null);
         }
-        appAtomRegistry.set(p2codeUpdateProgressAtom, progress);
+        appAtomRegistry.set(p2codeUpdateProgressAtom(environmentId), progress);
       },
-      signal: controller.signal,
-    })
-      .then((result) => {
+      onComplete: (result) => {
         if (
-          result !== null &&
-          (result.phase === "failed" || (wasRunning && result.phase === "done"))
+          result.phase !== "failed" ||
+          readReportedFailure(environmentId) !== failureKey(result)
         ) {
-          if (result.phase !== "failed" || readReportedFailure() !== failureKey(result)) {
-            reportOutcome(result);
-          }
+          reportOutcome(environmentId, result);
         }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (activeWatch === controller) {
-          activeWatch = null;
-          appAtomRegistry.set(p2codeUpdateProgressAtom, null);
-          inFlight = false;
-        }
-      });
+      },
+    });
+    activeWatches.set(environmentId, watcher);
+    const onVisibility = () => watcher.setActive(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      controller.abort();
-      if (activeWatch === controller) {
-        activeWatch = null;
-        appAtomRegistry.set(p2codeUpdateProgressAtom, null);
-        inFlight = false;
-      }
+      document.removeEventListener("visibilitychange", onVisibility);
+      watcher.dispose();
+      if (activeWatches.get(environmentId) === watcher) activeWatches.delete(environmentId);
     };
   }, [environmentId]);
-  return useAtomValue(p2codeUpdateProgressAtom);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- checks for an update immediately after the server reconnects
+  useEffect(() => {
+    if (environmentId !== null && connectionPhase === "connected") {
+      activeWatches.get(environmentId)?.refresh();
+    }
+  }, [environmentId, connectionPhase]);
+  const progress = useAtomValue(p2codeUpdateProgressAtom(environmentId));
+  return progress !== null && isP2codeUpdateRunning(progress.phase) ? progress : null;
 }
 
 function resolveP2codeEnvironmentId(
@@ -104,15 +101,8 @@ export function useP2codeAvailable(): boolean {
 const report = (type: "info" | "error" | "success", title: string, description: string) =>
   toastManager.add(stackedThreadToast({ type, title, description }));
 
-function makeCall(fixedEnvironmentId?: EnvironmentId): P2codeUpdateCall {
+function makeCall(environmentId: EnvironmentId): P2codeUpdateCall {
   return async (action) => {
-    const environmentId =
-      fixedEnvironmentId ??
-      resolveP2codeEnvironmentId(
-        appAtomRegistry.get(environmentPresentations.serverConfigsAtom),
-        appAtomRegistry.get(primaryEnvironmentIdAtom),
-      );
-    if (environmentId === null) throw new Error("No T3 Code server is connected.");
     const result = await serverEnvironment.p2codeUpdate.run(appAtomRegistry, {
       environmentId,
       input: action === "start" && isElectron ? { action, relaunchApp: true } : { action },
@@ -127,45 +117,58 @@ const REPORTED_FAILURE_KEY = "p2code-update-reported-failure";
 const failureKey = (result: P2codeUpdateResult) =>
   JSON.stringify([result.message, result.threadId]);
 
-function readReportedFailure(): string | null {
+function readReportedFailure(environmentId: EnvironmentId): string | null {
   try {
-    return window.localStorage.getItem(REPORTED_FAILURE_KEY);
+    return window.localStorage.getItem(`${REPORTED_FAILURE_KEY}:${environmentId}`);
   } catch {
     return null;
   }
 }
 
-function rememberReportedFailure(key: string | null) {
+function rememberReportedFailure(environmentId: EnvironmentId, key: string | null) {
   try {
-    if (key === null) window.localStorage.removeItem(REPORTED_FAILURE_KEY);
-    else window.localStorage.setItem(REPORTED_FAILURE_KEY, key);
+    const storageKey = `${REPORTED_FAILURE_KEY}:${environmentId}`;
+    if (key === null) window.localStorage.removeItem(storageKey);
+    else window.localStorage.setItem(storageKey, key);
   } catch {
     return;
   }
 }
 
-function reportOutcome(result: P2codeUpdateResult) {
+function reportOutcome(environmentId: EnvironmentId, result: P2codeUpdateResult) {
   if (result.phase === "failed") {
-    rememberReportedFailure(failureKey(result));
+    rememberReportedFailure(environmentId, failureKey(result));
     report("error", "Update failed", describeP2codeUpdate(result) ?? "The update failed.");
   } else {
     report("success", "p2code updated", result.message ?? "T3 Code is up to date.");
   }
 }
 
-let inFlight = false;
-let activeWatch: AbortController | null = null;
+const inFlight = new Set<EnvironmentId>();
 
 /** Checks for updates, asks once, then runs the whole update in the background. */
 export async function checkAndStartP2codeUpdate(): Promise<void> {
-  if (inFlight) return;
-  inFlight = true;
-  const call = makeCall();
+  const environmentId = resolveP2codeEnvironmentId(
+    appAtomRegistry.get(environmentPresentations.serverConfigsAtom),
+    appAtomRegistry.get(primaryEnvironmentIdAtom),
+  );
+  if (environmentId === null) {
+    report("error", "Could not update", "No T3 Code server is connected.");
+    return;
+  }
+  if (inFlight.has(environmentId)) return;
+  inFlight.add(environmentId);
+  const call = makeCall(environmentId);
+  const publish = (progress: P2codeUpdateResult) => {
+    const watcher = activeWatches.get(environmentId);
+    if (watcher) watcher.update(progress);
+    else appAtomRegistry.set(p2codeUpdateProgressAtom(environmentId), progress);
+  };
   try {
     const checked = await call("check");
     const outcome = resolveP2codeCheck(checked);
     if (outcome.kind === "running") {
-      appAtomRegistry.set(p2codeUpdateProgressAtom, checked);
+      publish(checked);
     } else if (outcome.kind === "up-to-date") {
       report(
         "info",
@@ -185,14 +188,15 @@ export async function checkAndStartP2codeUpdate(): Promise<void> {
         `Update p2code?\n\n${outcome.changes.map((change) => `• ${change}`).join("\n")}\n\nThis syncs, builds and installs in the background. T3 Code restarts when the install finishes.`,
       );
       if (!confirmed) return;
-      appAtomRegistry.set(p2codeUpdateProgressAtom, await call("start"));
+      publish(await call("start"));
     }
+    if (activeWatches.has(environmentId)) return;
     const final = await watchP2codeUpdate({
       call,
-      onProgress: (progress) => appAtomRegistry.set(p2codeUpdateProgressAtom, progress),
+      onProgress: publish,
       signal: new AbortController().signal,
     });
-    if (final !== null) reportOutcome(final);
+    if (final !== null) reportOutcome(environmentId, final);
   } catch (error) {
     report(
       "error",
@@ -200,7 +204,6 @@ export async function checkAndStartP2codeUpdate(): Promise<void> {
       error instanceof Error ? error.message : "The update failed.",
     );
   } finally {
-    appAtomRegistry.set(p2codeUpdateProgressAtom, null);
-    inFlight = false;
+    inFlight.delete(environmentId);
   }
 }

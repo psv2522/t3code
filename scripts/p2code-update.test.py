@@ -40,9 +40,30 @@ class StatusTest(unittest.TestCase):
         t3.chmod(0o755)
         for state in ('preparing', 'queued', 'starting', 'running', 'waiting', 'completed', 'failed'):
             with self.subTest(state=state):
+                (self.out / 'run/conflict-thread.status-cache').unlink(missing_ok=True)
                 self.env['FAKE_THREAD_JSON'] = json.dumps({'thread': {'status': state}})
                 self.assertEqual(self.status()['phase'], 'conflict' if state in (
                     'preparing', 'queued', 'starting', 'running', 'waiting') else 'failed')
+
+        t3.write_text('#!/bin/sh\necho call >> "$HOME/thread-calls"\nprintf "%s\\n" "$FAKE_THREAD_JSON"\n')
+        bin_dir = self.home / 'bin'
+        bin_dir.mkdir()
+        date = bin_dir / 'date'
+        date.write_text('#!/bin/sh\necho "$FAKE_NOW"\n')
+        date.chmod(0o755)
+        self.env['PATH'] = str(bin_dir) + os.pathsep + self.env['PATH']
+        self.env['FAKE_THREAD_JSON'] = json.dumps({'thread': {'status': 'running'}})
+        self.env['FAKE_NOW'] = '100'
+        self.assertEqual(self.status()['phase'], 'conflict')
+        self.assertFalse((self.home / 'thread-calls').exists())
+        self.env['FAKE_NOW'] = '1000'
+        self.assertEqual(self.status()['phase'], 'conflict')
+        self.assertEqual(self.status()['phase'], 'conflict')
+        self.assertEqual((self.home / 'thread-calls').read_text().splitlines(), ['call'])
+        self.env['FAKE_THREAD_JSON'] = json.dumps({'thread': {'status': 'completed'}})
+        self.env['FAKE_NOW'] = '1030'
+        self.assertEqual(self.status()['phase'], 'failed')
+        self.assertEqual((self.home / 'thread-calls').read_text().splitlines(), ['call', 'call'])
 
     def test_detached_lock_failure_removes_job(self):
         self.out.mkdir(parents=True)

@@ -104,6 +104,24 @@ conflict_thread_running() {
   esac
 }
 
+status_conflict_thread_running() {
+  local id cached_id checked_at now cache
+  id="$(cat "$CONFLICT_THREAD_FILE" 2>/dev/null || true)"
+  [[ -n "$id" ]] || return 1
+  cache="$CONFLICT_THREAD_FILE.status-cache"
+  now="$(date +%s)"
+  if [[ -f "$cache" ]] && read -r cached_id checked_at < "$cache" &&
+     [[ "$cached_id" == "$id" && "$checked_at" =~ ^[0-9]+$ ]] &&
+     [[ $((now - checked_at)) -ge 0 && $((now - checked_at)) -lt 30 ]]; then
+    return 0
+  fi
+  conflict_thread_running || return 1
+  if printf '%s %s\n' "$id" "$now" > "$cache.tmp.$$"; then
+    mv "$cache.tmp.$$" "$cache"
+  fi
+  return 0
+}
+
 run_carried_tests() {
   local file
   local -a tests=() node_tests=()
@@ -146,7 +164,7 @@ if [[ "$STATUS" -eq 1 ]]; then
         ;;
       conflict)
         updated="$(status_field updatedAt)"
-        if job_alive || conflict_thread_running || [[ $(( $(date +%s) - ${updated:-0} )) -lt 120 ]]; then
+        if job_alive || [[ $(( $(date +%s) - ${updated:-0} )) -lt 120 ]] || status_conflict_thread_running; then
           cat "$STATUS_FILE"
         else
           status_json failed "The fix thread stopped before finishing the update. Run the update again."

@@ -1,8 +1,7 @@
 import {
-  attachP2codeUpdate,
+  createP2codeUpdateWatcher,
   describeP2codeUpdate,
   resolveP2codeCheck,
-  watchP2codeUpdate,
   type P2codeUpdateCall,
 } from "@t3tools/client-runtime/p2codeUpdate";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -17,6 +16,7 @@ import { View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
 import * as Dialog from "../../components/ui/Dialog";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
+import { isAppActive, subscribeAppState } from "../../lib/appState";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { serverEnvironment } from "../../state/server";
 import { SettingsSection } from "./components/SettingsSection";
@@ -30,21 +30,6 @@ function makeCall(environmentId: EnvironmentId): P2codeUpdateCall {
     if (result._tag !== "Success") throw squashAtomCommandFailure(result);
     return result.value;
   };
-}
-
-async function startAndWatch(
-  environmentId: EnvironmentId,
-  onProgress: (result: P2codeUpdateResult) => void,
-  signal: AbortSignal,
-): Promise<string | null> {
-  try {
-    const call = makeCall(environmentId);
-    onProgress(await call("start"));
-    await watchP2codeUpdate({ call, onProgress, signal });
-    return null;
-  } catch (cause) {
-    return cause instanceof Error ? cause.message : "The update could not start.";
-  }
 }
 
 export function P2codeUpdateSection({
@@ -64,24 +49,26 @@ export function P2codeUpdateSection({
   const [checked, setChecked] = useState<P2codeUpdateResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const watching = useRef<AbortController | null>(null);
+  const watching = useRef<ReturnType<typeof createP2codeUpdateWatcher> | null>(null);
 
-  // Attaches to an update another client started, and stops following when the screen leaves.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows a server-side job and aborts on unmount
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows a server-side job while the screen and app are active
   useEffect(() => {
     if (!connected || !allowed) return;
-    const call = makeCall(environmentId);
-    const controller = new AbortController();
-    watching.current = controller;
-    void attachP2codeUpdate({
-      call,
+    const watcher = createP2codeUpdateWatcher({
+      call: makeCall(environmentId),
+      active: isAppActive(),
       onProgress: (status) => {
         setProgress(status);
-        if (isP2codeUpdateRunning(status.phase) || status.phase === "done") setChecked(null);
+        if (isP2codeUpdateRunning(status.phase)) setChecked(null);
       },
-      signal: controller.signal,
-    }).catch(() => undefined);
-    return () => controller.abort();
+    });
+    watching.current = watcher;
+    const unsubscribe = subscribeAppState(() => watcher.setActive(isAppActive()));
+    return () => {
+      unsubscribe();
+      watcher.dispose();
+      if (watching.current === watcher) watching.current = null;
+    };
   }, [environmentId, connected, allowed]);
 
   const running = progress !== null && isP2codeUpdateRunning(progress.phase);
@@ -91,22 +78,26 @@ export function P2codeUpdateSection({
 
   async function check() {
     if (disabled) return;
+    const watcher = watching.current;
     setChecking(true);
     setError(null);
     const outcome = await makeCall(environmentId)("check").then(
       (result) => ({ result }),
       (cause: unknown) => ({ cause }),
     );
+    setChecking(false);
+    if (watching.current !== watcher) return;
     if ("result" in outcome) {
       setChecked(outcome.result);
+      if (isP2codeUpdateRunning(outcome.result.phase)) watcher?.update(outcome.result);
     } else {
       setError(outcome.cause instanceof Error ? outcome.cause.message : "The update check failed.");
     }
-    setChecking(false);
   }
 
   function requestUpdate() {
     if (disabled || outcome?.kind !== "available") return;
+    const watcher = watching.current;
     Dialog.alert(
       `Update ${label}?`,
       `${outcome.changes.map((change) => `• ${change}`).join("\n")}\n\nIt syncs, builds and installs on that machine. T3 Code restarts and reconnects. Running threads may be interrupted.`,
@@ -115,12 +106,17 @@ export function P2codeUpdateSection({
         {
           text: "Update",
           onPress: () => {
+            if (!watcher || watching.current !== watcher) return;
             setError(null);
             setChecked(null);
-            watching.current?.abort();
-            const controller = new AbortController();
-            watching.current = controller;
-            void startAndWatch(environmentId, setProgress, controller.signal).then(setError);
+            void makeCall(environmentId)("start").then(
+              (status) => watcher.update(status),
+              (cause: unknown) => {
+                if (watching.current === watcher) {
+                  setError(cause instanceof Error ? cause.message : "The update could not start.");
+                }
+              },
+            );
           },
         },
       ],
@@ -138,14 +134,14 @@ export function P2codeUpdateSection({
         <Text className="text-sm text-foreground-muted">
           {running
             ? statusText
-            : progress?.phase === "done" && progress.message
-              ? progress.message
-              : outcome?.kind === "available"
-                ? outcome.changes.join(" and ")
-                : outcome?.kind === "up-to-date"
-                  ? "You are up to date."
-                  : outcome?.kind === "dirty"
-                    ? "Commit the changes in the p2code repo on that machine first."
+            : outcome?.kind === "available"
+              ? outcome.changes.join(" and ")
+              : outcome?.kind === "up-to-date"
+                ? "You are up to date."
+                : outcome?.kind === "dirty"
+                  ? "Commit the changes in the p2code repo on that machine first."
+                  : progress?.phase === "done" && progress.message
+                    ? progress.message
                     : "Updates come from the p2code repo on that machine."}
         </Text>
         {failure ? (

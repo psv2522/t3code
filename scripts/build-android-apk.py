@@ -96,8 +96,11 @@ def send_apk(apk, gradle_apk, destination, cache_dir, target):
         if destination.parent != cache_dir:
             prune_cached_apks(cache_dir, None)
         print(f'APK: {destination}', flush=True)
+        tailscale = 'tailscale'
+        if not shutil.which(tailscale) and Path('/usr/local/bin/tailscale').is_file():
+            tailscale = '/usr/local/bin/tailscale'
         try:
-            run(['tailscale', 'file', 'cp', destination, target])
+            run([tailscale, 'file', 'cp', destination, target])
         except Exception:
             print(f'Taildrop failed; APK retained for retry: {destination}', file=sys.stderr)
             raise
