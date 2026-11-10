@@ -8,6 +8,7 @@ import {
 export type P2codeUpdateCall = (action: P2codeUpdateAction) => Promise<P2codeUpdateResult>;
 
 const WATCH_INTERVAL_MS = 2_000;
+const DISCOVERY_INTERVAL_MS = 30_000;
 const WATCH_MAX_POLLS = 1_800;
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -47,6 +48,79 @@ export function describeP2codeUpdate(result: P2codeUpdateResult): string | null 
   }
 }
 
+export function createP2codeUpdateWatcher(input: {
+  readonly call: P2codeUpdateCall;
+  readonly onProgress: (result: P2codeUpdateResult) => void;
+  readonly onComplete?: (result: P2codeUpdateResult) => void;
+  readonly active?: boolean;
+}) {
+  let active = input.active ?? true;
+  let disposed = false;
+  let polling = false;
+  let refreshRequested = false;
+  let revision = 0;
+  let progress: P2codeUpdateResult | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const publish = (result: P2codeUpdateResult) => {
+    const wasRunning = progress !== null && isP2codeUpdateRunning(progress.phase);
+    progress = result;
+    input.onProgress(result);
+    if (result.phase === "failed" || (wasRunning && result.phase === "done")) {
+      input.onComplete?.(result);
+    }
+  };
+  const clearTimer = () => {
+    clearTimeout(timer);
+    timer = undefined;
+  };
+  const poll = async () => {
+    if (disposed || !active || polling) return;
+    clearTimer();
+    polling = true;
+    refreshRequested = false;
+    const started = revision;
+    const result = await input.call("status").catch(() => null);
+    polling = false;
+    if (disposed || !active) return;
+    if (result !== null && started === revision) publish(result);
+    timer = setTimeout(
+      () => void poll(),
+      refreshRequested
+        ? 0
+        : progress !== null && isP2codeUpdateRunning(progress.phase)
+          ? WATCH_INTERVAL_MS
+          : DISCOVERY_INTERVAL_MS,
+    );
+  };
+  const refresh = () => {
+    if (disposed) return;
+    clearTimer();
+    refreshRequested = true;
+    void poll();
+  };
+  refresh();
+  return {
+    refresh,
+    update(result: P2codeUpdateResult) {
+      if (disposed) return;
+      revision++;
+      publish(result);
+      refresh();
+    },
+    setActive(next: boolean) {
+      if (disposed || active === next) return;
+      active = next;
+      if (active) refresh();
+      else clearTimer();
+    },
+    dispose() {
+      disposed = true;
+      clearTimer();
+    },
+  };
+}
+
 /**
  * Follows a started update to its end. Polling errors are expected while the server restarts
  * to install, so they only delay the next poll. Returns null when aborted or out of polls.
@@ -59,6 +133,7 @@ export async function watchP2codeUpdate(input: {
 }): Promise<P2codeUpdateResult | null> {
   const wait = input.wait ?? waitFor;
   for (let poll = 0; poll < WATCH_MAX_POLLS; poll++) {
+    if (input.signal.aborted) return null;
     const result = await input.call("status").catch(() => null);
     if (input.signal.aborted) return null;
     if (result !== null) {
@@ -82,6 +157,7 @@ export async function attachP2codeUpdate(input: {
 }
 
 function waitFor(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(done, ms);
     signal.addEventListener("abort", done, { once: true });

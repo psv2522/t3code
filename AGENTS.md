@@ -1,6 +1,6 @@
 # T3 Code
 
-T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro, Pi, Muse Code, fx) and serves web, desktop, and mobile clients.
+T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro, and others) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
@@ -34,7 +34,7 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 I like ambitious ideas, simple systems, and software that feels obvious. Do not preserve complexity just because it already exists. Do not introduce machinery because it looks architecturally impressive. Understand the real constraint, then fight for the smallest model that makes the correct behavior unsurprising.
 
-Channel both "measure twice, cut once" and "yagni". Fight scope creep. Try to honor the dev's intent in both a minimal and realistic fashion.
+Channel both "measure twice, cut once" and "yagni". Fight scope creep. Honor the dev's intent in both a minimal and realistic fashion.
 
 The rest of this document is meant to help you navigate the codebase and make changes effectively. Think of these instructions less as "hard rules", more as "good defaults". The developer's preferences should be able to override anything here.
 
@@ -167,7 +167,7 @@ This checkout carries `p2code/custom` on the public GitHub fork `psv2522/t3code`
 - Local `main` only mirrors `origin/main` (fast-forward only). Never commit to it.
 - Branches for upstream PRs start from `main`, are pushed to `fork`, and never contain `p2code/custom` commits.
 - All custom work lives on `p2code/custom`, always rebased onto `main`. It is pushed with `--force-with-lease`.
-- Carried on top of upstream: lazy provider drivers and the p2code scripts. Drop a carried commit once upstream ships the equivalent.
+- The carried stack is whatever `git log --oneline main..p2code/custom` lists: the p2code scripts and update flow, plus server, web, desktop and mobile changes. Drop a carried commit once upstream ships the equivalent.
 - Dependency bumps live in one `build(deps): bump carried dependencies` commit at the top of the stack. Fold new bumps into it (`git commit --fixup` plus `git rebase -i --autosquash main`) instead of adding commits, so a sync hits at most one lockfile conflict. Majors are carried too; in its conflicts keep the higher version of each package.
 - After the rebase, `scripts/p2code-deps-guard.py <pre-rebase> HEAD` compares lockfiles. A version the branch carried above upstream that the rebase lowered, or a second copy of any `prosemirror-*` package (two copies break the composer), stops the update, resets the branch to its pre-rebase head, and goes to the conflict thread like a conflict. Pin a duplicated package with an override in `pnpm-workspace.yaml`.
 - GitHub Actions are disabled on the fork. Do not re-enable them.
@@ -236,7 +236,7 @@ python3 scripts/build-android-apk.py \
   --confirm-arm64 'realme P3 Ultra 5G; Dimensity 8350 ARM64'
 ```
 
-Build for arm64 only: pass `-PreactNativeArchitectures=arm64-v8a` to Gradle. The builder uses cached PDFium from `~/.cache/t3-android/pdfium` when present; see the Android APK guide. Run the build detached with `nohup` so a T3 server restart does not kill it.
+The builder builds arm64 only: `--abi` defaults to `arm64-v8a` and reaches Gradle as `-PreactNativeArchitectures`, so do not pass another ABI. The builder uses cached PDFium from `~/.cache/t3-android/pdfium` when present; see the Android APK guide. Run the build detached with `nohup` so a T3 server restart does not kill it.
 
 Leave `--output` unset. After validation the builder sends the APK to the owner's realme phone through Taildrop and deletes it on success. If the transfer fails, it keeps one APK at the printed path for retry:
 
@@ -246,7 +246,7 @@ tailscale file cp "<APK path>" prathmesh-android: && rm -f -- "<APK path>"
 
 Confirm the phone's current destination with `tailscale file cp --targets` if needed. Report transfer failures and keep the cached APK for retry; delete it after a successful retry. Do not copy or move build artifacts into the Mac's Downloads folder.
 
-The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB Mac with two Gradle workers, a 3 GiB heap, in-process Kotlin, and Java 17 toolchains provisioned by Gradle. Preserve upstream minification, resource shrinking, the uncompressed Hermes bundle, compressed native libraries, disabled over-the-air updates, and the persistent signing identity under `~/.cache/t3-android/signing`. Do not substitute the former 8 GiB heap workaround or run Gradle clean routinely. Follow [Local Nightly Android APK](docs/operations/android-apk.md) for cache preservation, fresh Metro temp directories, revision selection, and validation. Send only the APK through Taildrop. Keep receipts under `~/.cache/t3-android/receipts`; disable v4 signing so no `.idsig` sidecar is generated. Phone installation and launch remain unverified until actually tested; never uninstall an app or erase data automatically.
+The realme P3 Ultra 5G supports ARM64. The builder is sized for this 16 GiB Mac: two Gradle workers, a 3 GiB heap, in-process Kotlin, and Java 17 toolchains provisioned by Gradle. Leave those settings alone, and preserve upstream minification, resource shrinking, the uncompressed Hermes bundle, compressed native libraries, disabled over-the-air updates, and the persistent signing identity under `~/.cache/t3-android/signing`. Do not raise the heap or run Gradle clean routinely. Follow [Local Nightly Android APK](docs/operations/android-apk.md) for cache preservation, fresh Metro temp directories, revision selection, and validation. Send only the APK through Taildrop. Keep receipts under `~/.cache/t3-android/receipts`. The builder signs with v4 signing off, so there is no `.idsig` sidecar to send. Report phone installation and launch as untested unless you tested them; never uninstall an app or erase data automatically.
 
 ### Install and rollback
 
@@ -257,8 +257,8 @@ The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB M
 
 ### Rules for agents
 
-- Never run `p2code install`, `p2code rollback`, `p2code update` (without `--no-install`), or `t3 update`/service restarts from inside T3 Code. Agent sessions run under the background server that those commands restart and the desktop app they quit. `scripts/p2code.sh in-t3` detects this. Build with `p2code update --no-install` and tell the owner to run `p2code install` in a plain terminal. The one exception is `scripts/p2code-update.sh --launch`, which hands the whole update to launchd outside T3's process tree; the conflict thread runs it as `--launch --resume`, and nothing else should.
-- When the owner asks you to update, run `scripts/p2code-update.sh --launch` (add `--relaunch` to reopen the desktop app). It includes the install, so do not stop at a build. Check on it with `scripts/p2code-update.sh --status`.
+- Never run `p2code install`, `p2code rollback`, `p2code update` (without `--no-install`), or `t3 update`/service restarts from inside T3 Code: agent sessions run under the background server that those commands restart and the desktop app they quit (`scripts/p2code.sh in-t3` detects this). The exception is `scripts/p2code-update.sh --launch`, which hands the whole update, install included, to launchd outside T3's process tree. Run it when the owner asks you to update (add `--relaunch` to reopen the desktop app), do not stop at a build, and check on it with `scripts/p2code-update.sh --status`. Only the conflict or fix thread adds `--resume`.
+- For a build without an install, run `p2code update --no-install` and tell the owner to run `p2code install` in a plain terminal.
 - Never use `sudo`; the scripts refuse to run as root. A root run creates a second T3 installation and root-owned files.
 - Commit before building. The build refuses a dirty tree. Do not run a build while rebasing or switching branches; the build reads the working tree.
 - Do not edit `scripts/p2code*.sh` while a run is in flight. Bash reads scripts incrementally and a mid-run change causes bogus syntax errors. Keep `main "$@"; exit $?` at the end of `p2code.sh` and the outer brace group with `exit 0` in `p2code-update.sh`.
@@ -266,4 +266,5 @@ The realme P3 Ultra 5G supports ARM64. This method was verified on this 16 GiB M
 - Use `pnpm` and `vp`, not `npm`. Tooling matches upstream: vite-plus comes from upstream's catalog (do not bump it here) and pnpm from `packageManager`. The owner's shell sets `pnpm_config_pm_on_fail=ignore`, which runs the global pnpm 12; `scripts/p2code-lib.sh` exports `download` instead. Set the same before `vp i` or regenerating `pnpm-lock.yaml` by hand. Node stays ours: the pointer-compressed build.
 - "Browser" means T3 Code's in-app browser (the `mcp__t3-code__preview_*` tools), not Chrome. Use Chrome only when the owner names it. Before giving up on a Chrome task because the extension looks disconnected, check whether Chrome is running (`pgrep -x "Google Chrome"`). If it is not, open it (`open -a "Google Chrome"`), wait a moment, and retry before stopping.
 - To inspect T3's state, use the `t3` CLI first (for example `t3 auth session list`), before reading its SQLite or data files under `~/.t3`.
+- This Mac has no `ss` and no `/proc`, so the port-owner check in "Killing by pattern" cannot run as written. Find your port's listener with `lsof -nP -iTCP:<port> -sTCP:LISTEN`, and confirm its working directory is your worktree with `lsof -a -p <pid> -d cwd -Fn` before you kill it.
 - Match the owner's commit style (Conventional Commits). Prefer no code comments unless a future editor would be misled without one.

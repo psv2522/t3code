@@ -1,7 +1,12 @@
 import type { P2codeUpdateResult } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { attachP2codeUpdate, resolveP2codeCheck, watchP2codeUpdate } from "./p2codeUpdate.ts";
+import {
+  attachP2codeUpdate,
+  createP2codeUpdateWatcher,
+  resolveP2codeCheck,
+  watchP2codeUpdate,
+} from "./p2codeUpdate.ts";
 
 const result = (overrides: Partial<P2codeUpdateResult>): P2codeUpdateResult => ({
   phase: "idle",
@@ -12,6 +17,83 @@ const result = (overrides: Partial<P2codeUpdateResult>): P2codeUpdateResult => (
   localChanges: false,
   dirty: false,
   ...overrides,
+});
+
+describe("createP2codeUpdateWatcher", () => {
+  it("discovers an update after an idle check and follows it at the running interval", async () => {
+    vi.useFakeTimers();
+    const replies = [result({}), result({ phase: "building" }), result({ phase: "done" })];
+    const call = vi.fn(async () => replies.shift() ?? result({}));
+    const seen: string[] = [];
+    const completed: string[] = [];
+    const watcher = createP2codeUpdateWatcher({
+      call,
+      onProgress: (status) => seen.push(status.phase),
+      onComplete: (status) => completed.push(status.phase),
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(call).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(seen).toEqual(["idle", "building"]);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(seen).toEqual(["idle", "building", "done"]);
+      expect(completed).toEqual(["done"]);
+      watcher.dispose();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(call).toHaveBeenCalledTimes(3);
+    } finally {
+      watcher.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("pauses in the background, refreshes on resume, and ignores a disposed request", async () => {
+    vi.useFakeTimers();
+    const pending = Promise.withResolvers<P2codeUpdateResult>();
+    const call = vi.fn(() => pending.promise);
+    const onProgress = vi.fn();
+    const watcher = createP2codeUpdateWatcher({ call, onProgress, active: false });
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(call).not.toHaveBeenCalled();
+      watcher.setActive(true);
+      watcher.refresh();
+      expect(call).toHaveBeenCalledTimes(1);
+      watcher.dispose();
+      pending.resolve(result({ phase: "building" }));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(onProgress).not.toHaveBeenCalled();
+      expect(call).toHaveBeenCalledTimes(1);
+    } finally {
+      watcher.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a late status response from overwriting a newly started update", async () => {
+    vi.useFakeTimers();
+    const pending = Promise.withResolvers<P2codeUpdateResult>();
+    const call = vi
+      .fn<() => Promise<P2codeUpdateResult>>()
+      .mockImplementationOnce(() => pending.promise)
+      .mockImplementation(async () => result({ phase: "building" }));
+    const seen: string[] = [];
+    const watcher = createP2codeUpdateWatcher({
+      call,
+      onProgress: (status) => seen.push(status.phase),
+    });
+    try {
+      watcher.update(result({ phase: "building" }));
+      pending.resolve(result({}));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(seen).toEqual(["building", "building"]);
+      expect(call).toHaveBeenCalledTimes(2);
+    } finally {
+      watcher.dispose();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("resolveP2codeCheck", () => {
