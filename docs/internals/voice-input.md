@@ -43,6 +43,11 @@ It uses a separate, batch-only endpoint: changing a server key cannot upgrade
 an environment-local grant, and a cloud recording never uses the streaming
 socket or falls back to another provider or the environment's native model.
 
+The `custom` provider posts to a server URL saved in the environment's settings instead of a fixed
+host. It has no credential, so the destination itself is the sensitive setting: only settings-write
+holders change it, and the upload still refuses redirects. A recording is dropped if the URL changed while
+it was being sent.
+
 OpenRouter routes to many upstreams, so its grant also names the exact model and
 the model travels with every upload as a query parameter. The server accepts only
 ids present in OpenRouter's public ZDR-eligible transcription catalog,

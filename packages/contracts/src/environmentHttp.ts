@@ -54,9 +54,11 @@ import {
 } from "./baseSchemas.ts";
 import {
   CloudSpeechApiKey,
+  CloudSpeechEndpoint,
   CloudSpeechError,
   CloudSpeechKeys,
   CloudSpeechModelId,
+  CloudSpeechKeyProvider,
   CloudSpeechModels,
   CloudSpeechProvider,
   EnvironmentSpeechAccelerationRequest,
@@ -117,6 +119,7 @@ export const EnvironmentRequestInvalidReason = Schema.Literals([
   "invalid_history_cursor",
   "thread_transcript_too_large",
   "invalid_audio",
+  "invalid_endpoint",
   "speech_unavailable",
   "speech_busy",
 ]);
@@ -851,7 +854,7 @@ export class EnvironmentVoiceHttpApi extends HttpApiGroup.make("voice")
   .add(
     HttpApiEndpoint.post("setCloudKey", "/api/voice/cloud/:provider/key", {
       headers: OptionalBearerHeaders,
-      params: Schema.Struct({ provider: CloudSpeechProvider }),
+      params: Schema.Struct({ provider: CloudSpeechKeyProvider }),
       payload: Schema.Struct({
         key: Schema.NullOr(
           Schema.Union([Schema.RedactedFromValue(CloudSpeechApiKey), SecretReference]),
@@ -859,6 +862,14 @@ export class EnvironmentVoiceHttpApi extends HttpApiGroup.make("voice")
       }),
       success: HttpApiSchema.NoContent,
       error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("setCloudEndpoint", "/api/voice/cloud/custom/endpoint", {
+      headers: OptionalBearerHeaders,
+      payload: Schema.Struct({ url: Schema.NullOr(CloudSpeechEndpoint) }),
+      success: HttpApiSchema.NoContent,
+      error: [...EnvironmentScopedOperationErrors, EnvironmentRequestInvalidError],
     }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(

@@ -3,9 +3,11 @@ import { useNavigation } from "@react-navigation/native";
 import {
   cancelEnvironmentSpeechModelDownload,
   downloadEnvironmentSpeechModel,
+  linkEnvironmentSpeechModels,
   selectEnvironmentSpeechModel,
 } from "@t3tools/client-runtime/voice-input";
 import {
+  AuthFilesystemReadScope,
   AuthSettingsWriteScope,
   type EnvironmentId,
   type EnvironmentSpeechModel,
@@ -42,6 +44,7 @@ export function useVoiceModels(environmentId: EnvironmentId, label: string) {
   const refreshStatus = useAtomRefresh(statusAtom);
   const refreshModels = useAtomRefresh(modelsAtom);
   const canManage = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
+  const canReadFiles = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
   const [requested, setRequested] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -108,6 +111,24 @@ export function useVoiceModels(environmentId: EnvironmentId, label: string) {
       void run("Could not cancel the download", () =>
         runSpeech(cancelEnvironmentSpeechModelDownload(connection, model.id)),
       );
+    },
+    canLink: ready && status.supportsModelLinking === true && canReadFiles,
+    link: () => {
+      if (!ready) return;
+      Dialog.prompt({
+        title: "Use an existing model",
+        message: `Path to a model file or folder on ${label}.`,
+        placeholder: "/Users/you/models/model.bin",
+        initialValue: "",
+        confirmText: "Use model",
+        onConfirm: (value) => {
+          const path = value.trim();
+          if (!path) return;
+          void run("Could not use a model from that path", () =>
+            runSpeech(linkEnvironmentSpeechModels(connection, path)),
+          );
+        },
+      });
     },
   };
 }

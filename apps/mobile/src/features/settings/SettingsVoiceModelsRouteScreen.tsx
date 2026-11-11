@@ -10,6 +10,7 @@ import { Platform, View } from "react-native";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppText as Text } from "../../components/ui/AppText";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { ListActionRow } from "../../components/ui/ListActionRow";
 import { cn } from "../../lib/cn";
 import { useEnvironments } from "../../state/environments";
 import { voiceSpeechBenchmarksAtom } from "../voice-input/voiceDestination";
@@ -76,6 +77,19 @@ export function SettingsVoiceModelsRouteScreen({
                 This connection can’t change settings on {label}.
               </Text>
             )
+          }
+          ListFooterComponent={
+            voice.canManage && voice.canLink ? (
+              <View className="mt-4 overflow-hidden rounded-2xl">
+                <ListActionRow
+                  icon="folder"
+                  label="Use existing model"
+                  description={`Already downloaded? Enter the model file or folder path on ${label}.`}
+                  disabled={voice.busy || voice.downloading}
+                  onPress={voice.link}
+                />
+              </View>
+            ) : undefined
           }
           renderItem={({ item, index }) => (
             <View

@@ -49,7 +49,12 @@ it.effect.each(["openai", "xai"] as const)("sends only to %s using its own saved
     yield* service.setKey(provider === "openai" ? "xai" : "openai", Redacted.make("other"));
     expect((yield* Effect.flip(transcribe()))._tag).toBe("CloudSpeechError");
     yield* service.setKey(provider, Redacted.make("chosen"));
-    expect(yield* service.configured).toEqual({ openai: true, xai: true, openrouter: false });
+    expect(yield* service.configured).toEqual({
+      openai: true,
+      xai: true,
+      openrouter: false,
+      custom: false,
+    });
     yield* Effect.flip(transcribe(new Uint8Array(3)));
     expect(upstream).not.toHaveBeenCalled();
     expect(yield* transcribe()).toBe("hello");
@@ -198,3 +203,55 @@ it.effect("removing a key while a catalog read is pending prevents the upload", 
     expect(exit._tag).toBe("Failure");
   }),
 );
+
+it.effect("posts to the saved local server URL without credentials and rejects a changed URL", () =>
+  Effect.gen(function* () {
+    const service = yield* CloudSpeech.CloudSpeech.pipe(
+      Effect.provide(
+        CloudSpeech.layer.pipe(
+          Layer.provide(FetchHttpClient.layer),
+          Layer.provide(ServerSettings.ServerSettingsService.layerTest()),
+          Layer.provide(Layer.mock(SecretResolver.SecretResolver)({})),
+        ),
+      ),
+    );
+    const upstream = vi.fn<typeof fetch>(async () => Response.json({ text: " hello " }));
+    const transcribe = () =>
+      service
+        .transcribe("custom", new Uint8Array(new Float32Array([0, 0.5]).buffer), {
+          ...DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS,
+          speechLanguage: "en",
+          speechCustomWords: [{ term: "T3 Code", aliases: [] }],
+        })
+        .pipe(Effect.provideService(FetchHttpClient.Fetch, upstream));
+    expect(yield* Effect.flip(transcribe())).toMatchObject({
+      provider: "custom",
+      reason: "missing-key",
+    });
+    yield* service.setCustomUrl("http://127.0.0.1:8765/v1/");
+    expect((yield* service.configured).custom).toBe(true);
+    expect(yield* transcribe()).toBe("hello");
+    const [url, init] = upstream.mock.calls[0]!;
+    expect(String(url)).toBe("http://127.0.0.1:8765/v1/audio/transcriptions");
+    expect(init?.redirect).toBe("error");
+    expect(new Headers(init?.headers).get("authorization")).toBeNull();
+    const form = init?.body as FormData;
+    expect(form.get("language")).toBe("en");
+    expect(form.get("prompt")).toBe("T3 Code");
+    expect([...form.keys()].at(-1)).toBe("file");
+    upstream.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    expect(yield* Effect.flip(transcribe())).toMatchObject({ reason: "unavailable" });
+    yield* service.setCustomUrl(null);
+    expect((yield* service.configured).custom).toBe(false);
+  }),
+);
+
+it("derives the transcription URL from a base or full endpoint", () => {
+  expect(CloudSpeech.customTranscriptionUrl("http://localhost:1/v1")).toBe(
+    "http://localhost:1/v1/audio/transcriptions",
+  );
+  expect(CloudSpeech.customTranscriptionUrl("http://localhost:1/audio/transcriptions?x=1")).toBe(
+    "http://localhost:1/audio/transcriptions",
+  );
+  expect(CloudSpeech.customTranscriptionUrl("file:///etc/passwd")).toBeNull();
+});

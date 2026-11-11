@@ -25,6 +25,7 @@ import {
 } from "../auth/http.ts";
 import * as SpeechPostProcessing from "./postProcessing.ts";
 import * as CloudSpeech from "./CloudSpeech.ts";
+import { customTranscriptionUrl } from "./CloudSpeech.ts";
 import * as SpeechService from "./SpeechService.ts";
 
 const MAX_TRANSCRIBE_BODY_BYTES = SpeechService.MAX_SPEECH_BYTES + SPEECH_MAX_OPTIONS_BYTES + 4;
@@ -94,6 +95,17 @@ export const speechHttpApiLayer = HttpApiBuilder.group(
           yield* guard(args.endpoint.name, AuthSettingsWriteScope);
           yield* cloud
             .setKey(args.params.provider, args.payload.key)
+            .pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)));
+        }),
+      )
+      .handle(
+        "setCloudEndpoint",
+        Effect.fn("environment.voice.setCloudEndpoint")(function* (args) {
+          yield* guard(args.endpoint.name, AuthSettingsWriteScope);
+          if (args.payload.url !== null && customTranscriptionUrl(args.payload.url) === null)
+            return yield* failEnvironmentInvalidRequest("invalid_endpoint");
+          yield* cloud
+            .setCustomUrl(args.payload.url)
             .pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)));
         }),
       )

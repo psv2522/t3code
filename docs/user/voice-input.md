@@ -36,6 +36,13 @@ subscription is needed. Switch back to **This device** on mobile or **Off** on
 web and desktop to stop sharing. Removing the key stops that provider for everyone
 on the environment.
 
+**Local server** sends recordings to an OpenAI-compatible speech server running next to
+the environment, such as your own dictation app, so you can reuse a model you already have. Choose it,
+enter the server's base URL (for example `http://127.0.0.1:8765/v1`), and choose **Save and enable**. T3 Code
+posts each finished recording to `/audio/transcriptions` on that URL. There is no key and no live preview.
+The URL is saved on the environment, so on a phone the environment's server does the forwarding.
+Anyone who can change the environment's settings can point it elsewhere, so only enable it for servers you trust.
+
 **OpenRouter** works the same way but has no default model: pick one from its live
 speech-to-text catalog when you enable it, or later under **Manage OpenRouter**.
 The model choice is yours alone and needs no settings access, so anyone with
@@ -57,7 +64,7 @@ The recommendation uses your Voice language, or your system’s preferred langua
 If another app already downloaded one of these models, you don’t need a second copy.
 **Download** first looks in Handy’s model folder and the Hugging Face cache on that
 environment and uses a copy it finds there instead of downloading. For a copy anywhere
-else, on web or desktop, paste the path of the model file or its folder under the model
+else, on web, desktop, or mobile, paste the path of the model file or its folder under the model
 list and choose **Use existing**. The path is on the environment
 that transcribes, not on the device you are using. T3 Code checks that the file is exactly a
 model from its list and then uses it in place. Removing the model in T3 Code leaves your file

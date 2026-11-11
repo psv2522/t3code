@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { cloudSpeechDisclosure } from "@t3tools/shared/speech";
-import { setCloudSpeechKey } from "@t3tools/client-runtime/voice-input";
+import { setCloudSpeechEndpoint, setCloudSpeechKey } from "@t3tools/client-runtime/voice-input";
 import {
   configuredSecretSources,
   secretRequestReference,
@@ -11,8 +11,10 @@ import {
   CLOUD_SPEECH_PROVIDER_NAMES,
   CloudSpeechProvider,
   CloudSpeechApiKey,
+  CloudSpeechEndpoint,
   CloudSpeechModelId,
   isSecretReference,
+  type CloudSpeechKeyProvider,
   type CloudSpeechModel,
   type SecretProviderId,
   type SettingsSecretValue,
@@ -26,6 +28,7 @@ import { ScrollView, TextInput, View } from "react-native";
 import { Sheet } from "../../components/ui/Sheet";
 import * as Dialog from "../../components/ui/Dialog";
 import { ProviderIcon } from "../../components/ProviderIcon";
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ListActionRow } from "../../components/ui/ListActionRow";
 import { ListChoiceRow } from "../../components/ui/ListChoiceRow";
@@ -46,6 +49,7 @@ type CloudDestination = Extract<VoiceTranscriptionDestination, { kind: "cloud" }
 type Props = { environment: EnvironmentPresentation; active: CloudDestination | null };
 const isApiKey = Schema.is(CloudSpeechApiKey);
 const isModelId = Schema.is(CloudSpeechModelId);
+const isEndpoint = Schema.is(CloudSpeechEndpoint);
 const MODEL_ROWS = 6;
 
 /** The cloud method row for one environment; opens the provider sheet. */
@@ -185,6 +189,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
   const models = useAtomValue(catalogAtom);
   const reloadModels = useAtomRefresh(catalogAtom);
   const [draft, setDraft] = useState("");
+  const [urlDraft, setUrlDraft] = useState("");
   const [model, setModel] = useState("");
   const [sourceId, setSourceId] = useState<SecretProviderId | null>(null);
   const sources =
@@ -211,7 +216,11 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
       );
     }
   };
-  const edit = (provider: CloudSpeechProvider, enable: boolean) => {
+  const editCustom = (enable: boolean) => {
+    setUrlDraft(environment.serverConfig?.settings.cloudSpeechCustomUrl ?? "");
+    setEditing({ provider: "custom", enable });
+  };
+  const edit = (provider: CloudSpeechKeyProvider, enable: boolean) => {
     const stored = environment.serverConfig?.settings.cloudSpeechCredentials?.[provider];
     const ref =
       isSecretReference(stored) && sources.some((candidate) => candidate.id === stored.provider)
@@ -227,8 +236,28 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
     setModel("");
     setEditing(null);
   };
+  const changeUrl = async (value: string | null) => {
+    if (!connection || !canManage || saving) return;
+    const commit =
+      value !== null && (editing?.enable ?? false) ? pendingCloudVoiceChoice(id, "custom") : null;
+    setSaving(true);
+    try {
+      await runSpeech(setCloudSpeechEndpoint(connection, value));
+    } catch {
+      setSaving(false);
+      Dialog.alert(
+        "Could not update the speech server",
+        "Check the environment connection and your settings permissions.",
+      );
+      return;
+    }
+    setSaving(false);
+    if (commit) enable(commit);
+    reload();
+    onClose();
+  };
   const changeKey = async (
-    provider: CloudSpeechProvider,
+    provider: CloudSpeechKeyProvider,
     value: SettingsSecretValue | null,
     chosen?: CloudSpeechModelId,
   ) => {
@@ -280,17 +309,28 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
             const routed = provider === "openrouter";
             const key = saved[provider];
             const isActive = active?.provider === provider;
+            const custom = provider === "custom";
             return (
               <ListChoiceRow
                 key={provider}
                 label={label}
                 leading={
-                  <ProviderIcon
-                    provider={
-                      provider === "openai" ? "codex" : provider === "xai" ? "grok" : provider
-                    }
-                    size={20}
-                  />
+                  custom ? (
+                    <SymbolView
+                      name="server.rack"
+                      size={20}
+                      tintColorClassName="accent-icon"
+                      type="monochrome"
+                      weight="regular"
+                    />
+                  ) : (
+                    <ProviderIcon
+                      provider={
+                        provider === "openai" ? "codex" : provider === "xai" ? "grok" : provider
+                      }
+                      size={20}
+                    />
+                  )
                 }
                 selected={isActive}
                 separated={index > 0}
@@ -298,19 +338,38 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
                 description={
                   key === undefined
                     ? "Update the environment to use this provider"
-                    : isActive && routed
-                      ? `${activeModel} · Tap to change model${canManage ? " or key" : ""}`
-                      : isActive && key && canManage
-                        ? "Tap to manage key"
-                        : key
-                          ? routed
-                            ? "API key saved · choose a model to use it"
-                            : "API key saved"
-                          : canManage
-                            ? "Add an API key to use this provider"
-                            : "Ask an environment administrator to add an API key"
+                    : custom
+                      ? key
+                        ? isActive && canManage
+                          ? "Tap to manage the server URL"
+                          : "Server URL saved"
+                        : canManage
+                          ? "Add the URL of an OpenAI-compatible speech server"
+                          : "Ask an environment administrator to set a server URL"
+                      : isActive && routed
+                        ? `${activeModel} · Tap to change model${canManage ? " or key" : ""}`
+                        : isActive && key && canManage
+                          ? "Tap to manage key"
+                          : key
+                            ? routed
+                              ? "API key saved · choose a model to use it"
+                              : "API key saved"
+                            : canManage
+                              ? "Add an API key to use this provider"
+                              : "Ask an environment administrator to add an API key"
                 }
                 onPress={() => {
+                  if (custom && canManage) return editCustom(!isActive);
+                  if (custom && !key) return;
+                  if (provider === "custom") {
+                    if (isActive) return;
+                    return Dialog.confirm({
+                      title: `Use ${label} for dictation?`,
+                      message: `${cloudSpeechDisclosure(provider, environment.label)} Select This device to stop sharing.`,
+                      confirmText: `Use ${label}`,
+                      onConfirm: () => enable(pendingCloudVoiceChoice(id, provider)),
+                    });
+                  }
                   if (routed) return edit(provider, !isActive);
                   if (!key) return edit(provider, true);
                   if (isActive) {
@@ -330,6 +389,67 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
         </ListSection>
       );
 
+    if (editing.provider === "custom") {
+      const url = urlDraft.trim();
+      const stored = environment.serverConfig?.settings.cloudSpeechCustomUrl ?? "";
+      const isActive = active?.provider === "custom";
+      const valid = isEndpoint(url) && (!isActive || url !== stored);
+      return (
+        <>
+          <Text className="px-2 text-sm text-foreground-muted">
+            {cloudSpeechDisclosure("custom", environment.label)}
+          </Text>
+          {canManage ? (
+            <ListSection
+              title="Server URL"
+              footer={`An OpenAI-compatible server reachable from ${environment.label}. Recordings are posted to its /audio/transcriptions endpoint.`}
+            >
+              <View className="px-4 py-3">
+                <TextInput
+                  accessibilityLabel="Speech server URL"
+                  placeholder="http://127.0.0.1:8765/v1"
+                  keyboardType="url"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  importantForAutofill="no"
+                  maxLength={2048}
+                  editable={!saving}
+                  returnKeyType="done"
+                  onSubmitEditing={() => valid && void changeUrl(url)}
+                  value={urlDraft}
+                  onChangeText={setUrlDraft}
+                  className="rounded-lg bg-background px-3 py-2 text-foreground"
+                />
+              </View>
+            </ListSection>
+          ) : null}
+          {canManage ? (
+            <ListSection>
+              <ListActionRow
+                label={isActive ? "Save" : "Save and enable"}
+                loading={saving}
+                disabled={!valid}
+                onPress={() => void changeUrl(url)}
+              />
+              {stored ? (
+                <Separated>
+                  <ListActionRow
+                    tone="danger"
+                    label="Remove server URL"
+                    disabled={saving}
+                    onPress={() => void changeUrl(null)}
+                  />
+                </Separated>
+              ) : null}
+            </ListSection>
+          ) : null}
+          <ListSection>
+            <ListActionRow label="Back to providers" disabled={saving} onPress={reset} />
+          </ListSection>
+        </>
+      );
+    }
     const provider = editing.provider;
     const label = CLOUD_SPEECH_LABELS[provider];
     const company = CLOUD_SPEECH_PROVIDER_NAMES[provider];
