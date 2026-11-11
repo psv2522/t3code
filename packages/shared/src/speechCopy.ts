@@ -8,6 +8,13 @@ export function cloudSpeechDisclosure(
   environment: string,
   resolve: MFunctionType = mFallback,
 ) {
+  if (provider === "custom")
+    return resolve(
+      msg(
+        "After you stop, {environment} sends your recording and vocabulary hints, including project names, to the speech server set up on it.",
+        { environment },
+      ),
+    );
   return provider === "openrouter"
     ? resolve(
         msg(

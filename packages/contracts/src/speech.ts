@@ -8,23 +8,29 @@ export const CloudSpeechApiKey = TrimmedNonEmptyString.check(
   Schema.isPattern(/^(?![a-z][a-z\d+.-]*:\/\/)[!-~]+$/i),
 );
 
-export const CloudSpeechProvider = Schema.Literals(["openai", "xai", "openrouter"]);
+export const CloudSpeechKeyProvider = Schema.Literals(["openai", "xai", "openrouter"]);
+export type CloudSpeechKeyProvider = typeof CloudSpeechKeyProvider.Type;
+/** `custom` is an OpenAI-compatible server at a URL the environment's admin chose; it has no key. */
+export const CloudSpeechProvider = Schema.Literals(["openai", "xai", "openrouter", "custom"]);
 export type CloudSpeechProvider = typeof CloudSpeechProvider.Type;
 export const CLOUD_SPEECH_LABELS = {
   openai: "OpenAI",
   xai: "Grok Voice Transcribe",
   openrouter: "OpenRouter",
+  custom: "Local server",
 } as const;
 export const CLOUD_SPEECH_PROVIDER_NAMES = {
   openai: "OpenAI",
   xai: "xAI",
   openrouter: "OpenRouter",
+  custom: "Local server",
 } as const;
-/** Servers that predate OpenRouter report only the first two providers. */
+/** Servers that predate OpenRouter report only the first two providers; `custom` means a URL is set. */
 export const CloudSpeechKeys = Schema.Struct({
   openai: Schema.Boolean,
   xai: Schema.Boolean,
   openrouter: Schema.optionalKey(Schema.Boolean),
+  custom: Schema.optionalKey(Schema.Boolean),
 });
 export type CloudSpeechKeys = typeof CloudSpeechKeys.Type;
 
@@ -39,6 +45,12 @@ export const CloudSpeechModel = Schema.Struct({ id: CloudSpeechModelId, name: Sc
 export type CloudSpeechModel = typeof CloudSpeechModel.Type;
 export const CloudSpeechModels = Schema.Struct({ models: Schema.Array(CloudSpeechModel) });
 export type CloudSpeechModels = typeof CloudSpeechModels.Type;
+
+export const CloudSpeechEndpoint = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(2048),
+  Schema.isPattern(/^https?:\/\/[^\s]+$/i),
+);
+export type CloudSpeechEndpoint = typeof CloudSpeechEndpoint.Type;
 
 export class CloudSpeechError extends Schema.TaggedError<CloudSpeechError>()(
   "CloudSpeechError",
@@ -60,13 +72,19 @@ export class CloudSpeechError extends Schema.TaggedError<CloudSpeechError>()(
     const name = CLOUD_SPEECH_PROVIDER_NAMES[this.provider];
     switch (this.reason) {
       case "missing-key":
-        return `Add your ${name} API key in Settings → Voice.`;
+        return this.provider === "custom"
+          ? "Set the speech server URL in Settings → Voice."
+          : `Add your ${name} API key in Settings → Voice.`;
       case "key-changed":
-        return `The ${name} key changed before your recording was sent. Try again.`;
+        return this.provider === "custom"
+          ? "The speech server URL changed before your recording was sent. Try again."
+          : `The ${name} key changed before your recording was sent. Try again.`;
       case "unreadable-key":
         return `Couldn’t read the ${name} API key. Unlock the vault on the selected environment or update the key in Settings → Voice. No audio was sent to ${name}.`;
       case "rejected-key":
-        return `${name} rejected this API key. Check its permissions and billing in Settings → Voice.`;
+        return this.provider === "custom"
+          ? "The speech server rejected the request. Check the server’s access settings."
+          : `${name} rejected this API key. Check its permissions and billing in Settings → Voice.`;
       case "rate-limit":
         return `${name} reached a usage limit. Check the account's quota or try again later.`;
       case "model-unavailable":
