@@ -20,6 +20,7 @@ import {
   CLOUD_SPEECH_LABELS,
   CLOUD_SPEECH_PROVIDER_NAMES,
   isSecretReference,
+  type CloudSpeechKeyProvider,
   type CloudSpeechModel,
   type CloudSpeechProvider,
   type SecretProviderId,
@@ -65,6 +66,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { CustomVoiceConfiguration } from "./CustomVoiceConfiguration";
 import { SecretInput } from "./SecretInput";
 import { SecretSourceSelect } from "./SecretSourceInput";
 
@@ -156,14 +158,28 @@ function ModelPicker({
   );
 }
 
-export function CloudVoiceConfiguration({
+export function CloudVoiceConfiguration(props: {
+  environment: Pick<EnvironmentPresentation, "environmentId" | "label" | "serverConfig">;
+  provider: CloudSpeechProvider;
+  active: boolean;
+  close: () => void;
+}) {
+  const { provider, ...rest } = props;
+  return provider === "custom" ? (
+    <CustomVoiceConfiguration {...rest} />
+  ) : (
+    <KeyedCloudVoiceConfiguration provider={provider} {...rest} />
+  );
+}
+
+function KeyedCloudVoiceConfiguration({
   environment,
   provider,
   active,
   close,
 }: {
   environment: Pick<EnvironmentPresentation, "environmentId" | "label" | "serverConfig">;
-  provider: CloudSpeechProvider;
+  provider: CloudSpeechKeyProvider;
   active: boolean;
   close: () => void;
 }) {

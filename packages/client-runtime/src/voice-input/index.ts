@@ -18,6 +18,7 @@ export {
   getCloudSpeechKeys,
   getCloudSpeechModels,
   requireCloudSpeechKey,
+  setCloudSpeechEndpoint,
   setCloudSpeechKey,
   transcribeCloudPcm,
   getEnvironmentSpeechStatus,

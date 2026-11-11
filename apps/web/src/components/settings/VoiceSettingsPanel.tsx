@@ -52,6 +52,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
+  ServerIcon,
   StarIcon,
   Trash2Icon,
   UnlinkIcon,
@@ -153,6 +154,7 @@ import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 const OFF = "off";
 const DEVICE = "device";
 function CloudSpeechLogo({ provider }: { provider: CloudSpeechProvider }) {
+  if (provider === "custom") return <ServerIcon aria-hidden className="size-4 shrink-0" />;
   if (provider === "openrouter")
     return <ProviderPackageIcon icon={openRouterIcon} aria-hidden className="size-4 shrink-0" />;
   return (
@@ -1424,7 +1426,11 @@ export function VoiceSettingsPanel() {
   );
   // OpenRouter users without settings access still manage their own model choice.
   const manageLabel =
-    destination.cloudProvider === "openrouter" ? gt("Manage OpenRouter") : gt("Manage key");
+    destination.cloudProvider === "openrouter"
+      ? gt("Manage OpenRouter")
+      : destination.cloudProvider === "custom"
+        ? gt("Manage server")
+        : gt("Manage key");
   const chosenEnvironment = environments.find(
     (environment) => environment.environmentId === destination.environmentId,
   );
