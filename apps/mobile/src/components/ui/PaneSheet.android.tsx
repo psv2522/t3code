@@ -3,6 +3,7 @@ import { FormSheet } from "react-native-screens";
 import { useResolveClassNames } from "uniwind";
 
 import { BottomSheetContext } from "./BottomSheetContext";
+import { OverlayPortalScope } from "./OverlayPortal";
 import type { PaneSheetProps } from "./PaneSheet.types";
 export type { PaneSheetProps } from "./PaneSheet.types";
 
@@ -14,11 +15,13 @@ export function PaneSheet({ children, ...props }: PaneSheetProps) {
       <BottomSheetContext value>
         {/* Android FormSheet does not bound flex children. */}
         <View collapsable={false} className="absolute inset-0 bg-header pt-3">
-          {children}
-          <View
-            pointerEvents="none"
-            className="absolute top-1 h-1 w-8 self-center rounded-full bg-header-foreground/40"
-          />
+          <OverlayPortalScope>
+            {children}
+            <View
+              pointerEvents="none"
+              className="absolute top-1 h-1 w-8 self-center rounded-full bg-header-foreground/40"
+            />
+          </OverlayPortalScope>
         </View>
       </BottomSheetContext>
     </FormSheet>

@@ -29,7 +29,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
-import { KeyboardController } from "react-native-keyboard-controller";
+import { KeyboardController, KeyboardStickyView } from "react-native-keyboard-controller";
 
 import {
   AuthOrchestrationOperateScope,
@@ -817,9 +817,7 @@ export function NewTaskDraftScreen(props: {
             style={{ flex: 1 }}
             testID="new-task-hero-scroll"
           >
-            <View style={{ flexGrow: 1 }} />
             {hero}
-            <View style={{ flexGrow: 2 }} />
           </ScrollView>
         </View>
       </NativeScrollEdgeEffectsContext>
@@ -934,20 +932,23 @@ export function NewTaskDraftScreen(props: {
   if (!flow.selectedModel) {
     return (
       <ThreadScreenFallback header={<AppBar title="New thread" onBack={goBack} />}>
-        <View className="flex-1 justify-end gap-3 p-4">
-          {environmentControl}
-          <Text className="text-foreground-muted">
-            Your draft is saved on this device. Connect to an environment to choose its first model.
-          </Text>
-          <ComposerEditor
-            draftKey={flow.draftKey}
-            value={flow.prompt}
-            onChangeText={flow.setPrompt}
-            placeholder="Ask anything"
-            multiline
-            style={{ minHeight: 64 }}
-          />
-        </View>
+        <KeyboardStickyView pointerEvents="box-none" style={{ flex: 1 }}>
+          <View pointerEvents="box-none" className="flex-1 justify-end gap-3 p-4">
+            {environmentControl}
+            <Text className="text-foreground-muted">
+              Your draft is saved on this device. Connect to an environment to choose its first
+              model.
+            </Text>
+            <ComposerEditor
+              draftKey={flow.draftKey}
+              value={flow.prompt}
+              onChangeText={flow.setPrompt}
+              placeholder="Ask anything"
+              multiline
+              style={{ minHeight: 64 }}
+            />
+          </View>
+        </KeyboardStickyView>
       </ThreadScreenFallback>
     );
   }
