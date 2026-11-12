@@ -371,6 +371,7 @@ function DelegatedFromRow(props: {
   const router = useRouter();
   const { delegatedFrom } = props;
   const environment = useEnvironment(delegatedFrom.environmentId);
+  const canOpen = environment?.entry.enabled === true;
   const parentRef = scopeThreadRef(delegatedFrom.environmentId, delegatedFrom.threadId);
   // The title it had at delegation, until this client sees the parent itself.
   const parent = useQuietThreadShell(parentRef);
@@ -415,9 +416,9 @@ function DelegatedFromRow(props: {
               size="sm"
               variant="ghost"
               part="row"
-              aria-disabled={environment === null || undefined}
+              aria-disabled={!canOpen || undefined}
               onClick={() => {
-                if (environment === null) return;
+                if (!canOpen) return;
                 void openParent();
               }}
             />
@@ -445,15 +446,19 @@ function DelegatedFromRow(props: {
           <LineageTooltipContent
             title={title}
             hint={
-              environment === null
-                ? label
-                  ? gt("Delegated from {label}. Connect to it to open the parent thread.", {
+              canOpen
+                ? gt("Open parent agent on {label}", { label })
+                : environment === null
+                  ? label
+                    ? gt("Delegated from {label}. Connect to it to open the parent thread.", {
+                        label,
+                      })
+                    : gt(
+                        "Delegated from a linked environment. Connect to it to open the parent thread.",
+                      )
+                  : gt("Delegated from {label}. Turn it on in Settings to open the parent thread.", {
                       label,
                     })
-                  : gt(
-                      "Delegated from a linked environment. Connect to it to open the parent thread.",
-                    )
-                : gt("Open parent agent on {label}", { label: environment.label })
             }
           />
         </TooltipPopup>

@@ -235,7 +235,13 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           selectedEnvironmentId,
         })
       : null;
-  const canStartScratch = scratchOption?.ready === true;
+  const canStartScratch = scratchOption?.status === "ready";
+  const scratchSubtitle =
+    scratchOption?.status === "unavailable"
+      ? gt("Not available on this environment")
+      : scratchOption?.status === "pending"
+        ? gt("Waiting for your environment")
+        : gt("Start a task without a project");
   const pendingScratchRef = useRef<AbortController | null>(null);
   const cancelPendingScratch = useCallback(() => {
     pendingScratchRef.current?.abort();
@@ -396,7 +402,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 <NavigationRow
                   className="bg-grouped-card"
                   title={gt("No project")}
-                  subtitle={gt("Start a task without a project")}
+                  subtitle={scratchSubtitle}
                   disabled={!canStartScratch}
                   onPress={() => void startScratch()}
                   leading={
@@ -434,7 +440,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                       <T>No project</T>
                     </Text>
                     <Text className="text-xs leading-snug text-foreground-muted" numberOfLines={1}>
-                      <T>Start a task without a project</T>
+                      {scratchSubtitle}
                     </Text>
                   </View>
                   <SymbolView
