@@ -276,16 +276,24 @@ function pressBack() {
   return [...mocks.backListeners].reverse().some((listener) => listener());
 }
 
-it("Back from the Pulls tab returns to Threads instead of leaving the app", async () => {
-  using _actEnvironment = setup(false, false, selected("pullRequests"));
+it.each([
+  { state: selected("pullRequests"), opens: "threads" },
+  { state: selected("usage"), opens: "threads" },
+  { state: selected("threads"), opens: undefined },
+  {
+    state: workspaceTabsReducer(selected("pullRequests"), { type: "search" }),
+    opens: undefined,
+  },
+])("Back from the $state.selectedTab tab opens $opens", async ({ state, opens }) => {
+  using _actEnvironment = setup(false, false, state);
   const opened: string[] = [];
   mocks.openWorkspaceTab = (tab) => opened.push(tab);
   const root = createRoot(document.createElement("div"));
   using _root = { [Symbol.dispose]: () => act(() => root.unmount()) };
   await act(async () => root.render(createElement(WorkspaceRootScreen)));
 
-  expect(pressBack()).toBe(true);
-  expect(opened).toEqual(["threads"]);
+  expect(pressBack()).toBe(opens !== undefined);
+  expect(opened).toEqual(opens ? [opens] : []);
 });
 
 it.each([
