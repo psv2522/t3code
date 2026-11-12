@@ -852,6 +852,17 @@ it.effect.each([
     teardown: ["detach"],
   },
   {
+    name: "settles a running run whose provider turn already completed in a shared process",
+    others: ["thread:thread-management:force-stop:other"],
+    killed: false,
+    strandedRun: true,
+    expected: {
+      outcome: "shared",
+      sharedWithThreadIds: ["thread:thread-management:force-stop:other"],
+    },
+    teardown: ["detach"],
+  },
+  {
     name: "detaches when a sibling starts a turn just before the session is released",
     others: [] as ReadonlyArray<string>,
     killed: false,
@@ -915,7 +926,7 @@ it.effect.each([
                   id: "provider-turn:force-stop",
                   providerThreadId,
                   runAttemptId: "attempt",
-                  status: "settledRun" in row ? "completed" : "running",
+                  status: "settledRun" in row || "strandedRun" in row ? "completed" : "running",
                 },
               ],
             } as unknown as OrchestrationV2ThreadProjection),
