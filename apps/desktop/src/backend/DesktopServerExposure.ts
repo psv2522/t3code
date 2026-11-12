@@ -9,7 +9,12 @@ import {
   type DesktopServerExposureMode,
   type DesktopServerExposureState,
 } from "@t3tools/contracts";
-import { isTailscaleIpv4Address, readTailscaleStatus } from "@t3tools/tailscale";
+import {
+  isTailscaleIpv4Address,
+  readTailscaleServeRootHolder,
+  readTailscaleStatus,
+} from "@t3tools/tailscale";
+import * as NetService from "@t3tools/shared/Net";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -245,6 +250,15 @@ export class DesktopTailscaleServePersistenceError extends Schema.TaggedError<De
   }
 }
 
+export class DesktopTailscaleServePortInUseError extends Schema.TaggedError<DesktopTailscaleServePortInUseError>()(
+  "DesktopTailscaleServePortInUseError",
+  { port: Schema.Number },
+) {
+  override get message(): string {
+    return `HTTPS port ${this.port} on this machine already serves other Tailscale Serve routes. Choose another port.`;
+  }
+}
+
 export const DesktopServerExposureSetModeError = Schema.Union([
   DesktopServerExposureNoNetworkAddressError,
   DesktopServerExposureModePersistenceError,
@@ -255,6 +269,7 @@ export const DesktopServerExposureError = Schema.Union([
   DesktopServerExposureNoNetworkAddressError,
   DesktopServerExposureModePersistenceError,
   DesktopTailscaleServePersistenceError,
+  DesktopTailscaleServePortInUseError,
 ]);
 export type DesktopServerExposureError = typeof DesktopServerExposureError.Type;
 
@@ -285,7 +300,10 @@ export class DesktopServerExposure extends Context.Service<
     readonly setTailscaleServeEnabled: (input: {
       readonly enabled: boolean;
       readonly port?: number;
-    }) => Effect.Effect<DesktopServerExposureChange, DesktopTailscaleServePersistenceError>;
+    }) => Effect.Effect<
+      DesktopServerExposureChange,
+      DesktopTailscaleServePersistenceError | DesktopTailscaleServePortInUseError
+    >;
     readonly getAdvertisedEndpoints: Effect.Effect<readonly AdvertisedEndpoint[]>;
   }
 >()("@t3tools/desktop/backend/DesktopServerExposure") {}
@@ -463,6 +481,7 @@ export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
   const networkInterfaces = yield* DesktopNetworkInterfaces.DesktopNetworkInterfaces;
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const net = yield* NetService.NetService;
   const httpClient = yield* HttpClient.HttpClient;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const stateRef = yield* Ref.make(initialRuntimeState());
@@ -571,6 +590,22 @@ export const make = Effect.gen(function* () {
         enabled: input.enabled,
         ...(input.port === undefined ? {} : { port: input.port }),
       });
+      if (input.enabled) {
+        // The backend checks again before it serves; this names the port while another can be picked.
+        const current = yield* Ref.get(stateRef);
+        const servePort = input.port ?? current.tailscaleServePort;
+        const holder = yield* readTailscaleServeRootHolder(servePort, {
+          host: "127.0.0.1",
+          port: current.port,
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+          Effect.provideService(NetService.NetService, net),
+          Effect.orElseSucceed(() => "none" as const),
+        );
+        if (holder === "other") {
+          return yield* new DesktopTailscaleServePortInUseError({ port: servePort });
+        }
+      }
       const result = yield* desktopSettings
         .setTailscaleServe({
           enabled: input.enabled,
