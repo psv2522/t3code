@@ -12,6 +12,7 @@ import {
 import * as HttpObservability from "@t3tools/shared/httpObservability";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -154,6 +155,27 @@ const failRemoteRequest = (
     }),
   );
 };
+
+const REMOTE_REQUEST_HEDGE_DELAY = Duration.seconds(2);
+
+/**
+ * Starts one identical attempt if an idempotent request has not settled after
+ * `REMOTE_REQUEST_HEDGE_DELAY`: Tailscale can black-hole the first connection after a wake.
+ */
+export const hedgeIdempotentRequest = <A, E, R>(
+  request: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const first = yield* Effect.forkScoped(request);
+      const settled = yield* Fiber.await(first).pipe(
+        Effect.timeoutOption(REMOTE_REQUEST_HEDGE_DELAY),
+      );
+      return yield* Option.isSome(settled)
+        ? settled.value
+        : Effect.race(Fiber.join(first), request);
+    }),
+  );
 
 export const executeEnvironmentHttpRequest = <A, E, R>(
   requestUrl: string,
