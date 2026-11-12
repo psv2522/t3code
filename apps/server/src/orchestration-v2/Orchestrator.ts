@@ -4570,7 +4570,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     }
     if (command.type === "thread.settle") {
-      const projection = yield* loadProjectionForCommand(command, ["runs", "runtimeRequests"]);
+      const projection = yield* loadProjectionForCommand(
+        command,
+        ["runs", "runtimeRequests", "providerThreads", "turnItems"],
+        {
+          turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+          turnItemStatuses: ["pending", "running", "waiting"],
+        },
+      );
       if (
         command.expectedLatestRunId !== undefined &&
         projection.runs.reduce<OrchestrationV2Run | undefined>(
@@ -4617,13 +4624,30 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const blockingRequestExists = pendingRequests.some(
         (request) => request.kind !== "user_input" || request.responseCapability.type !== "message",
       );
+      // Settling detaches the provider session, which ends the work running inside it. Hold for
+      // the work auto-settle waits on. Delegated tasks run in their own thread and survive.
+      const awaitedSessionWorkExists =
+        !runningRunExists &&
+        backgroundWorkHoldsCompletion(
+          derivePendingBackgroundWork({
+            latestRun: projection.runs.findLast((run) => run.status !== "queued"),
+            providerThreads: projection.providerThreads,
+            turnItems: projection.turnItems.filter(
+              (item) => item.type !== "subagent" || item.origin !== "app_owned",
+            ),
+            activeProviderThreadId: projection.thread.activeProviderThreadId,
+            runs: projection.runs,
+          }),
+        );
       const blocker = blockingRequestExists
         ? "is waiting on an approval or question. Answer it before settling."
         : runningRunExists
           ? "is still running. Stop it before settling."
           : queuedMessageExists
             ? "has a queued message. Send it or remove it from the queue before settling."
-            : null;
+            : awaitedSessionWorkExists
+              ? "is still running background agents or commands, and settling would end them. Wait for them to finish, or press Stop, then settle."
+              : null;
       if (blocker !== null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
@@ -13111,7 +13135,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const markStoppedRun = Effect.fnUntraced(function* (input: {
     readonly command: Extract<
       OrchestrationV2ServerCommand,
-      { readonly type: "run.interrupt" | "thread.stop" }
+      { readonly type: "run.interrupt" | "thread.stop" | "thread.background-work.settle" }
     >;
     readonly events: Ref.Ref<Array<OrchestrationV2DomainEvent>>;
     readonly thread: OrchestrationV2AppThread;
@@ -13158,6 +13182,36 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         message: command.reason ?? RunExecutionService.USER_STOP_REASON,
       },
     });
+  });
+
+  const stopDelegatedCompletionCohorts = Effect.fnUntraced(function* (input: {
+    readonly command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "run.interrupt" | "thread.background-work.settle" }
+    >;
+    readonly events: Ref.Ref<Array<OrchestrationV2DomainEvent>>;
+    readonly run: OrchestrationV2Run;
+    readonly now: DateTime.Utc;
+  }) {
+    const { command, events, run, now } = input;
+    const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+    const delegatedCompletion = projection.messages.find(
+      (candidate) => candidate.id === run.userMessageId,
+    )?.delegatedCompletion;
+    const completionCohortRunId = delegatedCompletion?.parentRunId ?? run.id;
+    for (const parentRunId of new Set([completionCohortRunId, run.id])) {
+      yield* disposeDelegatedCompletionCohort({
+        command,
+        events,
+        projection: yield* getProjectionWithPendingEvents(command.threadId, events),
+        parentRunId,
+        disposition: "stopped",
+        now,
+        ...(parentRunId !== run.id && delegatedCompletion !== undefined
+          ? { interruptedWakeTaskIds: delegatedCompletion.taskIds }
+          : {}),
+      });
+    }
   });
 
   const holdStoppedThread = Effect.fn("Orchestrator.holdStoppedThread")(function* (input: {
@@ -13462,6 +13516,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return;
       const now = yield* DateTime.now;
       if (stopped.providerTurn !== undefined && stoppedRun.status === "running") {
+        // Only Force stop settles a running run no Stop reached; it records that Stop itself.
+        if (!(yield* stopReachedRun(command, command.threadId, stoppedRun.id))) {
+          const { thread } = yield* getProjectionWithPendingEvents(command.threadId, events);
+          yield* markStoppedRun({ command, events, thread, run: stoppedRun, now });
+          yield* stopDelegatedCompletionCohorts({ command, events, run: stoppedRun, now });
+        }
         const output = yield* projectionStore
           .getThreadRecords(command.threadId, ["messages"], {
             messageRunIds: [stoppedRun.id],
@@ -13702,21 +13762,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             cohortRunIds: [completionCohortRunId],
             now,
           })
-        : Effect.gen(function* () {
-            for (const parentRunId of new Set([completionCohortRunId, run.id])) {
-              yield* disposeDelegatedCompletionCohort({
-                command,
-                events,
-                projection: yield* getProjectionWithPendingEvents(command.threadId, events),
-                parentRunId,
-                disposition: "stopped",
-                now,
-                ...(parentRunId !== run.id && completionMessage?.delegatedCompletion !== undefined
-                  ? { interruptedWakeTaskIds: completionMessage.delegatedCompletion.taskIds }
-                  : {}),
-              });
-            }
-          });
+        : stopDelegatedCompletionCohorts({ command, events, run, now });
 
     const emitEvent = emit(events, command);
     const interruptRequestItem: OrchestrationV2TurnItem = {
