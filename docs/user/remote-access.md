@@ -33,7 +33,7 @@ A host can have multiple routes (LAN, Tailscale, VPN, public URL, SSH, T3 Connec
 
 Join both devices to a tailnet with [MagicDNS and HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates) enabled (on Linux, grant [operator permission](https://tailscale.com/docs/reference/troubleshooting/linux/linux-operator-permission)).
 
-- **Desktop**: Enable **Settings → Sharing & access → Tailscale HTTPS**.
+- **Desktop**: Enable **Settings → Sharing & access → Tailscale HTTPS**; use **Change port** to move it. T3 Code does not take over an HTTPS port that already serves other Tailscale Serve routes on the machine.
 - **CLI**: Run `t3 serve --tailscale-serve` or `t3 pair --tailscale` (use `--tailscale-serve-port` if 443 is taken; remove with `tailscale serve --https=443 --set-path=/ off`).
 
 ### Balance new threads across machines

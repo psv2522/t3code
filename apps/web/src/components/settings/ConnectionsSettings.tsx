@@ -505,6 +505,7 @@ function ConnectionsSettingsContent({
     parsedTailscaleServePort >= 1 &&
     parsedTailscaleServePort <= 65_535;
 
+  const isChangingTailscaleServePort = pendingTailscaleServeEndpoint?.status === "available";
   const pendingTailscaleServeBaseUrl = resolveTailscaleServeBaseUrl(
     pendingTailscaleServeEndpoint,
     parsedTailscaleServePort,
@@ -1153,18 +1154,30 @@ function ConnectionsSettingsContent({
       }
       control={
         tailscaleHttpsEndpoint ? (
-          <Switch
-            checked={tailscaleHttpsEndpoint.status === "available"}
-            disabled={isUpdatingTailscaleServe}
-            onCheckedChange={(checked) => {
-              if (checked) {
-                handleStartTailscaleServeSetup(tailscaleHttpsEndpoint);
-                return;
-              }
-              handleStartTailscaleServeDisable(tailscaleHttpsEndpoint);
-            }}
-            aria-label={gt("Enable Tailscale HTTPS")}
-          />
+          <div className="flex items-center gap-2">
+            {tailscaleHttpsEndpoint.status === "available" ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={isUpdatingTailscaleServe}
+                onClick={() => handleStartTailscaleServeSetup(tailscaleHttpsEndpoint)}
+              >
+                {gt("Change port")}
+              </Button>
+            ) : null}
+            <Switch
+              checked={tailscaleHttpsEndpoint.status === "available"}
+              disabled={isUpdatingTailscaleServe}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  handleStartTailscaleServeSetup(tailscaleHttpsEndpoint);
+                  return;
+                }
+                handleStartTailscaleServeDisable(tailscaleHttpsEndpoint);
+              }}
+              aria-label={gt("Enable Tailscale HTTPS")}
+            />
+          </div>
         ) : null
       }
       managed={tailscaleHttpsEndpoint?.status === "available" ? undefined : remoteClientsDenial}
@@ -1738,7 +1751,11 @@ function ConnectionsSettingsContent({
             <DialogPopup className="max-w-md">
               <DialogHeader>
                 <DialogTitle>
-                  <T>Set up Tailscale HTTPS?</T>
+                  {isChangingTailscaleServePort ? (
+                    <T>Change the Tailscale HTTPS port?</T>
+                  ) : (
+                    <T>Set up Tailscale HTTPS?</T>
+                  )}
                 </DialogTitle>
                 <DialogDescription>
                   <T>
@@ -1803,6 +1820,8 @@ function ConnectionsSettingsContent({
                       <Spinner size="sm" />
                       <T>Restarting…</T>
                     </>
+                  ) : isChangingTailscaleServePort ? (
+                    gt("Change port")
                   ) : (
                     gt("Enable")
                   )}
