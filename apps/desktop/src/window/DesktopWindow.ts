@@ -11,6 +11,8 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as Electron from "electron";
 import { msg } from "gt-i18n";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- will-download needs its save path synchronously.
+import * as NodeFS from "node:fs";
 
 import {
   type DatabaseMigrationProgress,
@@ -423,6 +425,59 @@ export const make = Effect.gen(function* () {
   let flushMainWindowBounds: Effect.Effect<void> = Effect.void;
   let remoteRequestHeaderOwner: Electron.BrowserWindow | null = null;
 
+  const utf8 = new TextEncoder();
+  const byteLength = (text: string) => utf8.encode(text).length;
+  const downloadSessions = new WeakSet<Electron.Session>();
+  const reservedDownloadPaths = new Set<string>();
+  // macOS and Windows ignore case in names, and macOS also ignores Unicode normalization.
+  const reservationKey = (filePath: string) => filePath.normalize("NFC").toLowerCase();
+  const truncateToBytes = (text: string, maxBytes: number) => {
+    let budget = maxBytes;
+    let kept = "";
+    for (const char of text) {
+      budget -= byteLength(char);
+      if (budget < 0) break;
+      kept += char;
+    }
+    return kept;
+  };
+  // Electron needs the save path before will-download returns, so the name is picked synchronously.
+  const reserveDownloadPath = (fileName: string) => {
+    const { path } = environment;
+    const directory = Electron.app.getPath("downloads");
+    const extension = path.extname(fileName);
+    const stem = path.basename(fileName, extension) || "download";
+    const [stemHead = ""] = stem;
+    // Filesystems cap a name at 255 bytes, so a suffix shortens the stem, and then the extension.
+    const nameWith = (suffix: string) => {
+      const budget = 255 - byteLength(suffix);
+      const kept = truncateToBytes(extension, budget - byteLength(stemHead));
+      return `${truncateToBytes(stem, budget - byteLength(kept))}${suffix}${kept}`;
+    };
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const target = path.join(directory, nameWith(attempt === 0 ? "" : ` (${attempt})`));
+      if (reservedDownloadPaths.has(reservationKey(target)) || NodeFS.existsSync(target)) continue;
+      reservedDownloadPaths.add(reservationKey(target));
+      return target;
+    }
+    // @effect-diagnostics-next-line cryptoRandomUUID:off -- Must stay synchronous, as above.
+    const target = path.join(directory, nameWith(` (${crypto.randomUUID()})`));
+    reservedDownloadPaths.add(reservationKey(target));
+    return target;
+  };
+  const saveDownloadsToDownloadsFolder = (session: Electron.Session) => {
+    if (downloadSessions.has(session)) return;
+    downloadSessions.add(session);
+    session.on("will-download", (_event, item) => {
+      const savePath = reserveDownloadPath(item.getFilename());
+      item.setSavePath(savePath);
+      item.once("done", (_doneEvent, state) => {
+        reservedDownloadPaths.delete(reservationKey(savePath));
+        if (state === "completed") Electron.shell.showItemInFolder(savePath);
+      });
+    });
+  };
+
   const dismissConnectingSplash = Effect.gen(function* () {
     const splash = yield* Ref.getAndSet(splashWindowRef, Option.none());
     if (Option.isSome(splash) && !splash.value.isDestroyed()) {
@@ -495,7 +550,10 @@ export const make = Effect.gen(function* () {
       minHeight: DesktopAppSettings.MIN_MAIN_WINDOW_SIZE.height,
       show: false,
       autoHideMenuBar: true,
-      ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
+      // Without it, macOS drops the activating click and keys stay in the composer, not the preview.
+      ...(environment.platform === "darwin"
+        ? { acceptFirstMouse: true, disableAutoHideCursor: true }
+        : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
       title: environment.displayName,
@@ -633,6 +691,7 @@ export const make = Effect.gen(function* () {
       yield* electronWindow.destroyAll;
       return Option.none();
     }
+    saveDownloadsToDownloadsFolder(window.webContents.session);
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -648,6 +707,8 @@ export const make = Effect.gen(function* () {
       webPreferences.nodeIntegrationInSubFrames = false;
       webPreferences.contextIsolation = true;
       webPreferences.disableHtmlFullscreenWindowResize = true;
+      // A hidden guest's page keeps its timers, so background heartbeats survive the suspend.
+      webPreferences.backgroundThrottling = false;
       if (previewPasskeys.bridgeEnabled) {
         webPreferences.additionalArguments = [
           ...(webPreferences.additionalArguments ?? []),
@@ -705,7 +766,11 @@ export const make = Effect.gen(function* () {
           menuTemplate.push({ type: "separator" });
         }
 
-        if (Option.isSome(ElectronShell.parseSafeExternalUrl(params.linkURL))) {
+        const mailtoAddress = parseMailtoAddress(params.linkURL);
+        if (
+          Option.isNone(mailtoAddress) &&
+          Option.isSome(ElectronShell.parseSafeExternalUrl(params.linkURL))
+        ) {
           menuTemplate.push(
             {
               label: m(msg("Copy Link")),
@@ -717,7 +782,6 @@ export const make = Effect.gen(function* () {
           );
         }
 
-        const mailtoAddress = parseMailtoAddress(params.linkURL);
         if (Option.isSome(mailtoAddress)) {
           menuTemplate.push(
             {
