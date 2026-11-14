@@ -21,6 +21,8 @@ import * as ProcessRunner from "../processRunner.ts";
 import { acquireServiceSelectionLock } from "./serviceSelectionLock.ts";
 import { RESTORE_OOMD_WATCH_SCRIPT } from "./userManagerOom.ts";
 import {
+  currentRuntimeEntryPath,
+  pointCurrentRuntime,
   serviceLauncherIsRunning,
   serviceLauncherLockPath,
   serviceTaskName,
@@ -1032,7 +1034,10 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     });
     const unitPath = manager?.unitPath ?? "";
     const plan: BootServicePlan = {
-      program: [runtimePaths.entryPath, "__service-launcher"],
+      program: [
+        platform === "darwin" ? currentRuntimeEntryPath(input.baseDir) : runtimePaths.entryPath,
+        "__service-launcher",
+      ],
       baseDir: input.baseDir,
       logPath,
       unitPath,
@@ -1488,6 +1493,12 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
             if (serviceStateActiveVersion(written) !== input.cliVersion) {
               return yield* new BootServiceUpdatePendingError();
             }
+          }
+          if (platform === "darwin") {
+            yield* Effect.tryPromise({
+              try: () => pointCurrentRuntime(input.baseDir, input.cliVersion, { keepNewer: false }),
+              catch: (cause) => new BootServiceInstallError({ cause }),
+            });
           }
           const unit = manager.render(plan);
           yield* writeDurably(
