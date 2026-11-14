@@ -5,6 +5,8 @@ import type {
 } from "@t3tools/contracts";
 import {
   findProviderLimitAccount,
+  findProviderLimitPool,
+  type LimitPoolWindow,
   type LimitPace,
   paceOf,
   paceRemainingPercent,
@@ -58,12 +60,15 @@ export function ThreadDetailsUsage({
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
-  const refreshLimits = useEffectEvent((id: EnvironmentId) => {
+  const refreshLimits = (id: EnvironmentId, automatic = false) => {
     void refreshUsageLimits(
       id,
       () => refreshProviders({ environmentId: id, input: { limitsOnly: true } }),
-      true,
+      automatic,
     ).catch(() => {});
+  };
+  const autoRefreshLimits = useEffectEvent((id: EnvironmentId) => {
+    refreshLimits(id, true);
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes limits when the panel's environment connects
   useEffect(() => {
@@ -72,18 +77,22 @@ export function ThreadDetailsUsage({
       providerInstanceId !== null &&
       presentation?.connection.phase === "connected"
     ) {
-      refreshLimits(environmentId);
+      autoRefreshLimits(environmentId);
     }
   }, [environmentId, providerInstanceId, presentation?.connection.phase]);
-  const limits =
+  const pool =
     environmentId !== null && providerInstanceId !== null
+      ? findProviderLimitPool(presentations, environmentId, providerInstanceId, now)
+      : undefined;
+  const limits =
+    !pool && environmentId !== null && providerInstanceId !== null
       ? (findProviderLimitAccount(presentations, environmentId, providerInstanceId)?.limits ??
         presentation?.serverConfig?.providers.find(
           (provider) => provider.instanceId === providerInstanceId,
         )?.usageLimits)
       : undefined;
-  if (!limits) return null;
-  const notice = limitsNotice(limits, m);
+  if (!limits && !pool) return null;
+  const notice = !pool && limits ? limitsNotice(limits, m) : null;
 
   return (
     <ThreadDetailsSection
@@ -101,8 +110,14 @@ export function ThreadDetailsUsage({
             tooltip={<span className="text-foreground">{notice}</span>}
             opensUsage
           />
+        ) : pool ? (
+          pool.windows.map((window) => (
+            <PooledLimitRow key={window.id} window={window} now={now} />
+          ))
         ) : (
-          limits.windows.map((window) => <LimitRow key={window.id} window={window} now={now} />)
+          limits?.windows.map((window) => (
+            <LimitRow key={window.id} window={window} now={now} />
+          ))
         )}
       </div>
     </ThreadDetailsSection>
@@ -173,6 +188,57 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
         />
       </div>
     </ThreadDetailsSection>
+  );
+}
+
+function PooledLimitRow({
+  window,
+  now,
+}: {
+  readonly window: LimitPoolWindow;
+  readonly now: number;
+}) {
+  const gt = useGT();
+  const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
+  const left = window.remainingPercent;
+  return (
+    <UsageRow
+      label={window.label}
+      fill={left}
+      tone={left <= 10 ? "error" : left <= 20 ? "warning" : null}
+      value={`${left}%`}
+      ariaValue={gt("{left}% left", { left })}
+      opensUsage
+      tooltip={
+        <>
+          <span className="text-foreground">
+            {window.members.length === 1
+              ? gt("{label}: {left}% left · Pooled across 1 account", { label: window.label, left })
+              : gt("{label}: {left}% left · Pooled across {count} accounts", {
+                  label: window.label,
+                  left,
+                  count: window.members.length,
+                })}
+          </span>
+          {window.members.map(({ account, window: member }) => {
+            const resetsAt = member.resetsAt ? Date.parse(member.resetsAt) : Number.NaN;
+            return (
+              <span key={account.key} className="text-muted-foreground">
+                {gt("{account}: {left}% left", {
+                  account: account.email ?? account.displayName ?? "",
+                  left: remainingPercent(member),
+                })}
+                {member.resetsAt && resetsAt > now
+                  ? gt(" · Resets {time}", {
+                      time: formatUpcomingTimestamp(member.resetsAt, timestampFormat, now),
+                    })
+                  : null}
+              </span>
+            );
+          })}
+        </>
+      }
+    />
   );
 }
 
