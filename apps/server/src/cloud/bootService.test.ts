@@ -909,6 +909,8 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
         const { service, fs, baseDir, statePath, commands, makeService } =
           yield* makeHarness(platform);
         const path = yield* Path.Path;
+        const unitEntry = (version: string) =>
+          platform === "darwin" ? "runtime/current/t3" : `versions/${version}/t3`;
         const envPath = path.join(baseDir, SERVICE_ENV_FILE);
         const envBytes = new TextEncoder().encode(
           '# user configuration\r\nT3CODE_TOKEN="literal $HOME # token"',
@@ -928,7 +930,12 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
           protocol: SERVICE_LAUNCHER_PROTOCOL,
           activeVersion: "1.2.4",
         });
-        expect(yield* fs.readFileString(plan.unitPath)).toContain("versions/1.2.4/t3");
+        expect(yield* fs.readFileString(plan.unitPath)).toContain(unitEntry("1.2.4"));
+        if (platform === "darwin") {
+          expect(yield* fs.readLink(path.join(baseDir, "runtime", "current"))).toBe(
+            path.join("versions", "1.2.4"),
+          );
+        }
         expect(
           commands.filter(
             (command) =>
@@ -950,7 +957,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
           protocol: SERVICE_LAUNCHER_PROTOCOL,
           activeVersion: "1.2.5",
         });
-        expect(yield* fs.readFileString(plan.unitPath)).toContain("versions/1.2.5/t3");
+        expect(yield* fs.readFileString(plan.unitPath)).toContain(unitEntry("1.2.5"));
         expect((yield* latest.status).current).toBe(true);
         expect(
           yield* fs.exists(path.join(path.dirname(statePath), SERVICE_RESTART_PENDING_FILE)),
@@ -1405,7 +1412,7 @@ process.disconnect();
 
   it.effect("installs, reports current state, and uninstalls on macOS", () =>
     Effect.gen(function* () {
-      const { service, fs, statePath, commands, timeouts, runtime } = yield* makeHarness("darwin");
+      const { service, fs, statePath, commands, timeouts } = yield* makeHarness("darwin");
       const path = yield* Path.Path;
       const plan = yield* service.install();
 
@@ -1422,7 +1429,10 @@ process.disconnect();
         activeVersion: "1.2.3",
       });
       expect(yield* fs.readFileString(plan.unitPath)).toContain(
-        `    <string>${runtime.entryPath}</string>\n    <string>__service-launcher</string>`,
+        `    <string>${path.join(plan.baseDir, "runtime", "current", "t3")}</string>\n    <string>__service-launcher</string>`,
+      );
+      expect(yield* fs.readLink(path.join(plan.baseDir, "runtime", "current"))).toBe(
+        path.join("versions", "1.2.3"),
       );
       expect(yield* service.status).toMatchObject({
         current: true,

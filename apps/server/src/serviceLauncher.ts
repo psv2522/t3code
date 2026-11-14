@@ -28,6 +28,7 @@ import {
   serviceTaskIsDisabled,
   serviceUnitBaseDirOf,
   serviceUnitLogPathOf,
+  serviceUnitProgramOf,
   SERVICE_ENV_FILE,
   SERVICE_LAUNCHER_LOCK_FILE,
   SERVICE_LAUNCHER_CONTEXT_ENV,
@@ -76,6 +77,36 @@ const runtimePaths = (baseDir: string, version: string) => {
     sentinelPath: NodePath.join(versionDir, ".install-complete"),
   };
 };
+
+const currentRuntimeLink = (baseDir: string) => NodePath.join(baseDir, "runtime", "current");
+
+/** The path macOS records for the launch agent; it never changes across versions. */
+export const currentRuntimeEntryPath = (baseDir: string) =>
+  NodePath.join(currentRuntimeLink(baseDir), "t3");
+
+export async function pointCurrentRuntime(
+  baseDir: string,
+  version: string,
+  options: { readonly keepNewer: boolean },
+): Promise<void> {
+  const link = currentRuntimeLink(baseDir);
+  const target = NodePath.join("versions", version);
+  const current = await NodeFSP.readlink(link).catch(() => undefined);
+  if (current === target) return;
+  const currentVersion = current === undefined ? undefined : NodePath.basename(current);
+  if (
+    options.keepNewer &&
+    currentVersion !== undefined &&
+    isExactServiceVersion(currentVersion) &&
+    compareExactServiceVersions(currentVersion, version) >= 0
+  ) {
+    return;
+  }
+  const pending = `${link}.${process.pid}.tmp`;
+  await NodeFSP.rm(pending, { force: true });
+  await NodeFSP.symlink(target, pending);
+  await NodeFSP.rename(pending, link);
+}
 
 const runtimeSpawnArguments = (paths: ReturnType<typeof runtimePaths>) => ({
   command: paths.entryPath,
@@ -1283,6 +1314,9 @@ export class Launcher {
           NodePath.resolve(installedBaseDir) !== NodePath.resolve(this.#baseDir)
         ) {
           return;
+        }
+        if (serviceUnitProgramOf(contents) === currentRuntimeEntryPath(this.#baseDir)) {
+          await pointCurrentRuntime(this.#baseDir, version, { keepNewer: true });
         }
         const repointed = repointServiceUnit(contents, version);
         if (repointed !== contents) await replaceFileDurably(unit.path, repointed);

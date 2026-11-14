@@ -24,6 +24,7 @@ import {
   databaseBackupBlocker,
   Launcher,
   main,
+  pointCurrentRuntime,
   readServiceEnvironment,
   type BackupSpaceProbe,
   readServiceState,
@@ -273,6 +274,26 @@ it.layer(NodeServices.layer)("service state persistence", (it) => {
       task = unit.replace("1.1.0", "1.0.0");
       yield* Effect.promise(() => registerServiceTask(unitPath, "t3code-PC-theo", schtasks));
       assert.equal(task, unit);
+    }),
+  );
+
+  it.effect("moves the current runtime link forward, and back only when told to", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-current-runtime-" });
+      yield* fs.makeDirectory(path.join(root, "runtime"), { recursive: true });
+      const linked = () => fs.readLink(path.join(root, "runtime", "current"));
+
+      yield* Effect.promise(() => pointCurrentRuntime(root, "1.0.1", { keepNewer: true }));
+      assert.equal(yield* linked(), path.join("versions", "1.0.1"));
+      yield* Effect.promise(() => pointCurrentRuntime(root, "1.0.2", { keepNewer: true }));
+      assert.equal(yield* linked(), path.join("versions", "1.0.2"));
+      yield* Effect.promise(() => pointCurrentRuntime(root, "1.0.1", { keepNewer: true }));
+      assert.equal(yield* linked(), path.join("versions", "1.0.2"));
+      yield* Effect.promise(() => pointCurrentRuntime(root, "1.0.1", { keepNewer: false }));
+      assert.equal(yield* linked(), path.join("versions", "1.0.1"));
+      assert.deepEqual(yield* fs.readDirectory(path.join(root, "runtime")), ["current"]);
     }),
   );
 

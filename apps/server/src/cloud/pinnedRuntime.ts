@@ -688,10 +688,14 @@ const selectUnusedRuntimes = Effect.fn("cloud.pinned_runtime.select_unused")(fun
   const platform = yield* HostProcess.Platform;
   // Windows paths are case-insensitive, and shims and process lists need not agree on case.
   const foldCase = (value: string) => (platform === "win32" ? value.toLowerCase() : value);
+  const resolvedReferences = yield* Effect.forEach(input.references, (reference) =>
+    fs.realPath(reference).pipe(Effect.orElseSucceed(() => reference)),
+  );
   const references = [
     executables.value,
     ...(yield* shellLauncherTargets(input.baseDir)),
     ...input.references,
+    ...resolvedReferences,
   ].map(foldCase);
   // Process executables are resolved, so they name the real path of a symlinked T3 home.
   const realVersionsDir = yield* fs
