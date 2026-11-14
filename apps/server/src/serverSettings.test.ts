@@ -137,6 +137,46 @@ function strictSecretReferencePaths(
 }
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings", (it) => {
+  it.effect(
+    "exposes client settings sync support and reloads opaque registers without losing entries",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        assert.deepEqual((yield* service.getSettings).syncedClientSettings, {});
+        const entries = {
+          language: { value: "fr", updatedAt: 10 },
+          future: { value: { nested: [false, 1], other: null }, updatedAt: 20 },
+        };
+        yield* service.updateSettings({ syncedClientSettings: entries });
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const raw = JSON.parse(yield* fs.readFileString(config.settingsPath));
+        assert.deepEqual(raw.syncedClientSettings, entries);
+        yield* fs.writeFileString(
+          config.settingsPath,
+          JSON.stringify({
+            ...raw,
+            syncedClientSettings: {
+              ...entries,
+              bad: { value: true, updatedAt: -1 },
+              infinite: { value: true, updatedAt: "oops" },
+            },
+          }),
+        );
+        const reloaded = yield* Effect.gen(function* () {
+          const fresh = yield* ServerSettingsModule.ServerSettingsService;
+          return yield* fresh.getSettings;
+        }).pipe(
+          Effect.provide(
+            Layer.fresh(ServerSettingsModule.layer).pipe(
+              Layer.provide(Layer.merge(ServerSecretStore.layer, ManagedPolicy.layerTest())),
+            ),
+          ),
+        );
+        assert.deepEqual(reloaded.syncedClientSettings, entries);
+      }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("serializes concurrent model preference edits without cancelling duplicate adds", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;

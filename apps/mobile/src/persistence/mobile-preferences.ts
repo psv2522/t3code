@@ -1,3 +1,5 @@
+import * as Clock from "effect/Clock";
+import { stampMobilePreferencesPatch } from "../state/settings-sync.logic";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -89,6 +91,8 @@ const ThreadProject = Schema.Struct({
 const isThreadProject = Schema.is(ThreadProject);
 
 export interface Preferences {
+  readonly settingsSyncEnabled?: boolean;
+  readonly settingsSyncTimestamps?: Readonly<Record<string, number>>;
   readonly navigationTabOrder?: readonly string[];
   readonly hiddenNavigationTabs?: readonly string[];
   readonly pullRequestHideTestFiles?: boolean;
@@ -182,6 +186,8 @@ const isPullRequestMergeMethod = Schema.is(PullRequestMergeMethod);
 
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
+    settingsSyncEnabled?: boolean;
+    settingsSyncTimestamps?: Readonly<Record<string, number>>;
     navigationTabOrder?: readonly string[];
     hiddenNavigationTabs?: readonly string[];
     pullRequestHideTestFiles?: boolean;
@@ -224,6 +230,20 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workspaceSelections?: WorkspaceSelections;
   } = {};
 
+  if (typeof parsed.settingsSyncEnabled === "boolean") {
+    preferences.settingsSyncEnabled = parsed.settingsSyncEnabled;
+  }
+  if (
+    typeof parsed.settingsSyncTimestamps === "object" &&
+    parsed.settingsSyncTimestamps !== null &&
+    !Array.isArray(parsed.settingsSyncTimestamps)
+  ) {
+    preferences.settingsSyncTimestamps = Object.fromEntries(
+      Object.entries(parsed.settingsSyncTimestamps).filter(
+        ([, value]) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+      ),
+    );
+  }
   if (Array.isArray(parsed.hiddenNavigationTabs)) {
     preferences.hiddenNavigationTabs = parsed.hiddenNavigationTabs.filter(
       (tab): tab is string => typeof tab === "string",
@@ -565,7 +585,11 @@ const make = Effect.fn("MobilePreferencesStore.make")(function* () {
               try: () => transform(current),
               catch: (cause) => new MobilePreferencesSaveError({ cause }),
             });
-            const next: Preferences = { ...current, ...patch };
+            const next = stampMobilePreferencesPatch(
+              current,
+              patch,
+              yield* Clock.currentTimeMillis,
+            );
             const payload = yield* encode(PREFERENCES_KEY, next);
             yield* saveJson(payload);
             return next;

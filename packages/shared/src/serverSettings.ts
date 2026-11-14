@@ -1,3 +1,4 @@
+import { mergeSyncedClientSettings } from "./syncedClientSettings.ts";
 import type { ModelPreferences } from "@t3tools/contracts/settings";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
@@ -412,6 +413,7 @@ export function applyServerSettingsPatch(
     projectAgentBrowserAccessOverrides: _legacyBrowserAccess,
     projectAutoPullOverrides: _legacyAutoPull,
     projectScriptOverrides: _legacyScripts,
+    syncedClientSettings,
     ...patchForMerge
   } = patch;
   const currentBackgroundActivity = normalizeServerBackgroundActivitySettings(current);
@@ -504,6 +506,14 @@ export function applyServerSettingsPatch(
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,
+    ...(syncedClientSettings === undefined
+      ? {}
+      : {
+          syncedClientSettings: mergeSyncedClientSettings(
+            current.syncedClientSettings ?? {},
+            syncedClientSettings,
+          ),
+        }),
     favorites,
     providerModelPreferences: nextModelPreferences,
     ...(worktreeCleanupPatch === undefined

@@ -26,9 +26,13 @@ export function createMobilePreferencesState(
     .atom(
       MobilePreferences.MobilePreferencesStore.pipe(
         Effect.flatMap((store) => store.load),
+        Effect.map((preferences) => ({ preferences, loadedSuccessfully: true })),
         Effect.catch((error) =>
           Effect.logWarning("Could not load mobile preferences.", error).pipe(
-            Effect.as<MobilePreferences.Preferences>({}),
+            Effect.as({
+              preferences: {} as MobilePreferences.Preferences,
+              loadedSuccessfully: false,
+            }),
           ),
         ),
       ),
@@ -50,7 +54,7 @@ export function createMobilePreferencesState(
     const confirmed = get(confirmedPreferencesAtom);
     const optimistic = get(optimisticPatchAtom);
     return AsyncResult.map(stored, (preferences) => ({
-      ...preferences,
+      ...preferences.preferences,
       ...confirmed,
       ...optimistic.values,
     }));
@@ -126,7 +130,11 @@ export function createMobilePreferencesState(
     )
     .pipe(Atom.keepAlive, Atom.withLabel("mobile:preferences:update"));
 
-  return { preferencesAtom, updatePreferencesAtom } as const;
+  const loadedSuccessfullyAtom = Atom.make(
+    (get) =>
+      AsyncResult.getOrElse(get(storedPreferencesAtom), () => null)?.loadedSuccessfully === true,
+  ).pipe(Atom.withLabel("mobile:preferences:loaded-successfully"));
+  return { preferencesAtom, updatePreferencesAtom, loadedSuccessfullyAtom } as const;
 }
 
 const mobilePreferencesRuntime = Atom.runtime(Runtime.layer);
@@ -134,3 +142,6 @@ const mobilePreferencesState = createMobilePreferencesState(mobilePreferencesRun
 
 export const mobilePreferencesAtom = mobilePreferencesState.preferencesAtom;
 export const updateMobilePreferencesAtom = mobilePreferencesState.updatePreferencesAtom;
+
+export const mobilePreferencesLoadedSuccessfullyAtom =
+  mobilePreferencesState.loadedSuccessfullyAtom;

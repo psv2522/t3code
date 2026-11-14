@@ -1,3 +1,11 @@
+import {
+  adoptClientSettingsEntries,
+  planClientSettingsSync,
+  pushClientSettingsWithRetry,
+  stampClientSettingsChanges,
+} from "@t3tools/client-runtime/state/client-settings-sync";
+import { mergeSyncedClientSettings } from "@t3tools/shared/syncedClientSettings";
+import type { SyncedClientSettings } from "@t3tools/contracts/settings";
 import { useRef, useSyncExternalStore, use } from "react";
 import { useSyncExternalStoreWithSelector } from "use-sync-external-store/with-selector";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
@@ -210,13 +218,26 @@ export function persistClientSettingsPatch(
   patch: ClientSettingsPatch,
   persist: (settings: ClientSettings) => Promise<void> = defaultClientSettingsPersistence,
 ): Promise<void> {
+  const now = Date.now();
+  const applyPatch = (current: ClientSettings) => {
+    const next = { ...current, ...patch };
+    return {
+      ...next,
+      settingsSyncTimestamps: stampClientSettingsChanges(
+        current,
+        next,
+        current.settingsSyncTimestamps,
+        now,
+      ),
+    };
+  };
   // Patches queued before hydration must publish before newer optimistic patches.
   const deferPatch =
     clientSettingsHydrationStatus !== "ready" || deferredClientSettingsPatchCount > 0;
   if (deferPatch) {
     deferredClientSettingsPatchCount += 1;
   } else {
-    replaceClientSettingsSnapshot({ ...getClientSettingsSnapshot(), ...patch });
+    replaceClientSettingsSnapshot(applyPatch(getClientSettingsSnapshot()));
   }
   return enqueueClientSettingsPersistence(async () => {
     if (deferPatch) {
@@ -233,7 +254,7 @@ export function persistClientSettingsPatch(
     if (
       !Object.entries(patch).every(([key, value]) => current[key as keyof ClientSettings] === value)
     ) {
-      replaceClientSettingsSnapshot({ ...current, ...patch });
+      replaceClientSettingsSnapshot(applyPatch(current));
     }
     await persist(getClientSettingsSnapshot());
   }).catch((error) => {
@@ -248,14 +269,27 @@ export function persistClientSettingsPatch(
 export async function persistClientSettingsUpdate(
   update: (current: ClientSettings) => ClientSettings,
   persist: (settings: ClientSettings) => Promise<void> = defaultClientSettingsPersistence,
+  stampChanges = true,
 ): Promise<ClientSettings> {
+  const now = Date.now();
   return enqueueClientSettingsPersistence(async () => {
     if (clientSettingsHydrationStatus !== "ready") {
       await hydrateClientSettings();
     }
     for (;;) {
       const current = getClientSettingsSnapshot();
-      const next = update(current);
+      const updated = update(current);
+      const next = stampChanges
+        ? {
+            ...updated,
+            settingsSyncTimestamps: stampClientSettingsChanges(
+              current,
+              updated,
+              current.settingsSyncTimestamps,
+              now,
+            ),
+          }
+        : updated;
       await persist(next);
       if (getClientSettingsSnapshot() === current) {
         replaceClientSettingsSnapshot(next);
@@ -263,6 +297,20 @@ export async function persistClientSettingsUpdate(
       }
     }
   });
+}
+
+export function applySyncedClientSettings(
+  entries: SyncedClientSettings,
+  persist: (settings: ClientSettings) => Promise<void> = defaultClientSettingsPersistence,
+): Promise<ClientSettings> {
+  return persistClientSettingsUpdate(
+    (current) => {
+      const adopted = adoptClientSettingsEntries(current, current.settingsSyncTimestamps, entries);
+      return { ...current, ...adopted.values, settingsSyncTimestamps: adopted.timestamps };
+    },
+    persist,
+    false,
+  );
 }
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
@@ -394,6 +442,117 @@ export function startModelPreferencesMigration(): () => void {
   ];
   migrateModelPreferences();
   return () => {
+    for (const unsubscribe of unsubscribes) unsubscribe();
+  };
+}
+
+const clientSettingsSyncTargetsAtom = Atom.make((get) =>
+  get(modelPreferencesMigrationTargetsAtom)
+    .filter(({ settings }) => settings.syncedClientSettings !== undefined)
+    .map((target) => {
+      const result = get(environmentSession.sessionStateAtom(target.environmentId));
+      const session = result._tag === "Failure" ? null : AsyncResult.getOrElse(result, () => null);
+      return {
+        ...target,
+        writable: session !== null && sessionGrantsScope(session, AuthSettingsWriteScope),
+      };
+    }),
+).pipe(Atom.withLabel("web-client-settings-sync-targets"));
+
+export function startClientSettingsSync(): () => void {
+  const pending = new Map<
+    EnvironmentId,
+    { generation: number; entries: SyncedClientSettings; controller: AbortController }
+  >();
+  let applying = false;
+  let stopped = false;
+  const sync = () => {
+    if (stopped) return;
+    const targets = appAtomRegistry.get(clientSettingsSyncTargetsAtom);
+    for (const [id, state] of pending) {
+      if (
+        !clientSettingsSnapshot.settingsSyncEnabled ||
+        !targets.some(
+          (target) =>
+            target.environmentId === id &&
+            target.generation === state.generation &&
+            target.writable,
+        )
+      ) {
+        state.controller.abort();
+        pending.delete(id);
+      }
+    }
+    if (
+      applying ||
+      clientSettingsHydrationStatus !== "ready" ||
+      !clientSettingsSnapshot.settingsSyncEnabled
+    )
+      return;
+    const plan = planClientSettingsSync({
+      values: clientSettingsSnapshot,
+      timestamps: clientSettingsSnapshot.settingsSyncTimestamps,
+      defaults: DEFAULT_CLIENT_SETTINGS,
+      now: Date.now(),
+      environments: targets.map((target) => ({
+        environmentId: target.environmentId,
+        settings: target.settings.syncedClientSettings,
+        writable: target.writable,
+        inFlight: pending.get(target.environmentId)?.entries,
+      })),
+    });
+    const entries = { ...plan.adopts, ...plan.seeds };
+    if (Object.keys(entries).length > 0) {
+      applying = true;
+      void applySyncedClientSettings(entries).then(
+        () => {
+          applying = false;
+          sync();
+        },
+        (error) => {
+          applying = false;
+          console.error(
+            `${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} sync failed`,
+            safeErrorLogAttributes(error),
+          );
+        },
+      );
+    }
+    for (const push of plan.pushes) {
+      const target = targets.find((target) => target.environmentId === push.environmentId)!;
+      const state = {
+        generation: target.generation,
+        controller: pending.get(push.environmentId)?.controller ?? new AbortController(),
+        entries: mergeSyncedClientSettings(
+          pending.get(push.environmentId)?.entries ?? {},
+          push.syncedClientSettings,
+        ),
+      };
+      pending.set(push.environmentId, state);
+      void pushClientSettingsWithRetry(async () => {
+        const result = await runAtomCommand(
+          appAtomRegistry,
+          serverEnvironment.updateSettings,
+          {
+            environmentId: push.environmentId,
+            input: { patch: { syncedClientSettings: push.syncedClientSettings } },
+          },
+          { reportFailure: false },
+        );
+        return result._tag === "Success";
+      }, state.controller.signal);
+    }
+  };
+  const unsubscribes = [
+    appAtomRegistry.subscribe(clientSettingsSyncTargetsAtom, sync),
+    subscribeClientSettings(sync),
+    subscribeClientSettingsHydration(sync),
+  ];
+  sync();
+  return () => {
+    stopped = true;
+    for (const state of pending.values()) state.controller.abort();
+    pending.clear();
     for (const unsubscribe of unsubscribes) unsubscribe();
   };
 }

@@ -1,3 +1,4 @@
+import { SettingsSyncSection } from "./SettingsSyncSection";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { SidebarProjectGroupingMode } from "@t3tools/contracts";
@@ -54,6 +55,7 @@ export function SettingsProjectGroupingRouteScreen() {
         contentContainerClassName="gap-3 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
+        <SettingsSyncSection />
         <SettingsSection title="Project grouping">
           {GROUPING_OPTIONS.map((option, index) => (
             <SettingsChoiceRow

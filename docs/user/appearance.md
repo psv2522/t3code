@@ -39,7 +39,17 @@ Wide formulas scroll horizontally while the surrounding text wraps. Copying a fo
 exporting a table preserves the TeX.
 
 The composer keeps TeX source editable, including when rich text is enabled. The Render math
-preference is saved separately on each device.
+preference is saved separately on each device unless settings sync is enabled.
+
+## Sync settings across devices
+
+Turn on **Sync settings across devices** in **Settings → General** on each device to share
+preferences through your connected environments. Every device and server must run a build that
+supports settings sync. It syncs tool call visibility, highest reasoning levels, follow-up behavior,
+language, math rendering, the working section, and project grouping.
+
+The newest change wins. For a customised setting that has not been synced before, the first device
+to sync it provides its starting value. Turn the switch off on a device to keep its preferences local.
 
 ## Motion
 

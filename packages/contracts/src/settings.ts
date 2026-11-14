@@ -402,7 +402,17 @@ export const VoiceTranscriptionDestination = Schema.Union([
 ]);
 export type VoiceTranscriptionDestination = typeof VoiceTranscriptionDestination.Type;
 
+const SettingsSyncTimestamp = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThanOrEqualTo(0),
+);
+const SettingsSyncTimestamps = Schema.Record(Schema.String, SettingsSyncTimestamp);
+
 export const ClientSettingsSchema = Schema.Struct({
+  settingsSyncEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  settingsSyncTimestamps: SettingsSyncTimestamps.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
@@ -1359,7 +1369,34 @@ export const CloudSpeechCredentials = Schema.Struct({
   openrouter: CloudSpeechCredential,
 });
 
+export const SyncedClientSettingEntry = Schema.Struct({
+  value: Schema.Unknown,
+  updatedAt: SettingsSyncTimestamp,
+});
+export type SyncedClientSettingEntry = typeof SyncedClientSettingEntry.Type;
+
+export const SyncedClientSettings = Schema.Record(Schema.String, SyncedClientSettingEntry);
+export type SyncedClientSettings = typeof SyncedClientSettings.Type;
+
+const isSyncedClientSettingEntry = Schema.is(SyncedClientSettingEntry);
+
+const TolerantSyncedClientSettings = Schema.Record(Schema.String, Schema.Unknown).pipe(
+  Schema.decodeTo(
+    SyncedClientSettings,
+    SchemaTransformation.transform({
+      decode: (entries) =>
+        Object.fromEntries(
+          Object.entries(entries).filter((entry): entry is [string, SyncedClientSettingEntry] =>
+            isSyncedClientSettingEntry(entry[1]),
+          ),
+        ),
+      encode: (entries) => entries,
+    }),
+  ),
+);
+
 export const ServerSettings = Schema.Struct({
+  syncedClientSettings: Schema.optionalKey(TolerantSyncedClientSettings),
   // Null means unmigrated; empty is authoritative and must not resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   providerModelPreferences: Schema.NullOr(ProviderModelPreferences).pipe(
@@ -1795,6 +1832,7 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  syncedClientSettings: Schema.optionalKey(SyncedClientSettings),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
   ),
@@ -2037,6 +2075,8 @@ export function requiredScopesForProjectMutation(
 }
 
 export const ClientSettingsPatch = Schema.Struct({
+  settingsSyncEnabled: Schema.optionalKey(Schema.Boolean),
+  settingsSyncTimestamps: Schema.optionalKey(SettingsSyncTimestamps),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),

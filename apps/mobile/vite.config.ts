@@ -63,7 +63,10 @@ const babelConfig = require("./babel.config.js")({ cache: () => {} });
 const testPlatform = process.env.T3_MOBILE_TEST_PLATFORM === "android" ? "android" : "ios";
 
 export default defineConfig({
+  // Effect test helpers must share the runner’s Vite+ instance across pnpm peer variants.
+  resolve: { dedupe: ["vite-plus"] },
   test: {
+    server: { deps: { inline: ["@effect/vitest"] } },
     hookTimeout: 60_000,
     testTimeout: 60_000,
     projects: [

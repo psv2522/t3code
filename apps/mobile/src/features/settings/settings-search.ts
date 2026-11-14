@@ -53,6 +53,8 @@ const SETTINGS_SEARCH_TERMS = {
   SettingsScheduledTasks: ["automations", "schedule", "cron", "recurring", "webhook"],
   SettingsProjectOverview: ["project", "overview", "checkouts", "delete project"],
   SettingsOrganization: [
+    "sync settings across devices",
+    "sync preferences desktop mobile newest change",
     "project grouping",
     "group projects",
     "organization",

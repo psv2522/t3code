@@ -18,6 +18,7 @@ import {
   getClientSettings,
   mergeEnvironmentSettings,
   persistClientSettingsPatch,
+  applySyncedClientSettings,
   persistClientSettingsUpdate,
   prepareModelPreferencesPatch,
 } from "./useSettings";
@@ -31,6 +32,32 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("client settings sync timestamps", () => {
+  it("stamps optimistic and deferred patches and functional updates, and preserves remote timestamps", async () => {
+    using _now = vi.spyOn(Date, "now").mockReturnValue(100);
+    await persistClientSettingsPatch({ language: "fr" });
+    expect(getClientSettings().settingsSyncTimestamps).toEqual({ language: 100 });
+    _now.mockReturnValue(200);
+    const write = persistClientSettingsPatch({ mathRenderingEnabled: true });
+    expect(getClientSettings().settingsSyncTimestamps.mathRenderingEnabled).toBe(200);
+    await write;
+    _now.mockReturnValue(300);
+    await persistClientSettingsUpdate((current) => ({
+      ...current,
+      sidebarWorkingShelfEnabled: false,
+    }));
+    expect(getClientSettings().settingsSyncTimestamps.sidebarWorkingShelfEnabled).toBe(300);
+    await applySyncedClientSettings({ language: { value: "de", updatedAt: 150 } });
+    expect(getClientSettings().language).toBe("de");
+    expect(getClientSettings().settingsSyncTimestamps.language).toBe(150);
+    const edit = persistClientSettingsPatch({ language: "en" });
+    const adopt = applySyncedClientSettings({ language: { value: "fr", updatedAt: 250 } });
+    await Promise.all([edit, adopt]);
+    expect(getClientSettings().language).toBe("en");
+    expect(getClientSettings().settingsSyncTimestamps.language).toBe(300);
+  });
 });
 
 describe("client settings hydration", () => {

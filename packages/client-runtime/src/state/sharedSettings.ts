@@ -69,3 +69,13 @@ export function supportsSharedSettingsSync(environment: {
 }): boolean {
   return environment.connection.phase === "connected" && environment.serverConfig !== null;
 }
+
+export function supportsClientSettingsSync(environment: {
+  readonly connection: { readonly phase: EnvironmentConnectionPhase };
+  readonly serverConfig: { readonly settings: ServerSettings } | null;
+}): boolean {
+  return (
+    supportsSharedSettingsSync(environment) &&
+    environment.serverConfig?.settings.syncedClientSettings !== undefined
+  );
+}

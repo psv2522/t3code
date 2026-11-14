@@ -1,3 +1,4 @@
+import { supportsClientSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { useAtomValue } from "@effect/atom-react";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
@@ -466,6 +467,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
 
   const changedSettingLabels = [
+    ...(settings.settingsSyncEnabled ? ["Sync settings across devices"] : []),
     ...(theme !== "system" ? ["Theme"] : []),
     ...(!followSystem ? ["Follow system"] : []),
     ...(themeHalves !== null ? ["Theme mix"] : []),
@@ -666,6 +668,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       return;
     }
     updateSettings({
+      settingsSyncEnabled: DEFAULT_UNIFIED_SETTINGS.settingsSyncEnabled,
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
@@ -807,6 +810,8 @@ function useTranslatedSearchableSetting() {
 }
 
 export function GeneralSettingsPanel() {
+  const { environments } = useEnvironments();
+  const hasSettingsSyncEnvironment = environments.some(supportsClientSettingsSync);
   const gt = useGT();
   const m = useMessages();
   const setting = useTranslatedSearchableSetting();
@@ -821,6 +826,38 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <SettingsSection id="settings-sync" title={gt("Settings sync")}>
+        <SettingsRow
+          {...setting("settings-sync")}
+          description={
+            <T>
+              Sync tool call visibility, highest reasoning levels, follow-up behavior, language,
+              math rendering, the working section, and project grouping. The newest change wins.
+            </T>
+          }
+          status={
+            settings.settingsSyncEnabled && !hasSettingsSyncEnvironment ? (
+              <T>No connected environment supports settings sync.</T>
+            ) : null
+          }
+          resetAction={
+            settings.settingsSyncEnabled ? (
+              <SettingResetButton
+                label="settings sync"
+                onClick={() => updateSettings({ settingsSyncEnabled: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.settingsSyncEnabled}
+              onCheckedChange={(checked) => updateSettings({ settingsSyncEnabled: checked })}
+              aria-label={gt("Sync settings across devices")}
+            />
+          }
+        />
+      </SettingsSection>
+
       <SettingsSection id="notifications" title={gt("Notifications")}>
         <NotificationSettings />
         <SettingsRow

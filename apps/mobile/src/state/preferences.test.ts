@@ -85,6 +85,7 @@ describe("mobile preferences state", () => {
       const preferences = yield* AtomRegistry.getResult(registry, state.preferencesAtom, {
         suspendOnWaiting: true,
       });
+      expect(registry.get(state.loadedSuccessfullyAtom)).toBe(true);
       expect(preferences).toEqual({
         baseFontSize: 18,
         collapsedProjectGroups: ["project:new"],
@@ -190,6 +191,7 @@ describe("mobile preferences state", () => {
           suspendOnWaiting: true,
         }),
       ).toEqual({});
+      expect(registry.get(state.loadedSuccessfullyAtom)).toBe(false);
 
       unmount();
       registry.dispose();
