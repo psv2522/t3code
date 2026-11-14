@@ -24,6 +24,7 @@ import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
 import {
   ensurePinnedRuntimeInstalled,
+  isVersionExecutable,
   launcherOwnsVersionsDir,
   pinnedRuntimeCommand,
   isUnpublishedRelease,
@@ -183,6 +184,12 @@ export const repointLauncher = Effect.fn("cli.update.repoint_launcher")(function
   if (Option.isNone(linkTarget)) return Option.none<string>();
   const resolvedTarget = path.resolve(path.dirname(input.launchedAs), linkTarget.value);
   if (!ownsTarget(resolvedTarget)) return Option.none<string>();
+  if (
+    isVersionExecutable(path, versionsDir, input.launchedAs) &&
+    launcherOwnsVersionsDir(path, path.dirname(input.launchedAs), resolvedTarget)
+  ) {
+    return Option.none<string>();
+  }
   yield* remember(input.launchedAs);
   const tempLink = `${input.launchedAs}.${process.pid}.tmp`;
   yield* fs.symlink(input.targetEntryPath, tempLink).pipe(

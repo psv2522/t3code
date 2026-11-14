@@ -219,6 +219,18 @@ it.layer(NodeServices.layer)("t3 update launcher", (it) => {
 
       assert.deepStrictEqual(Option.getOrUndefined(repointed), launcher);
       assert.equal(yield* fs.readLink(launcher), newExe);
+
+      const bundled = path.join(path.dirname(oldExe), "T3 Code Service.app/Contents/MacOS/t3");
+      yield* fs.makeDirectory(path.dirname(bundled), { recursive: true });
+      yield* fs.rename(oldExe, bundled);
+      yield* fs.symlink(bundled, oldExe);
+      const internal = yield* repointLauncher({
+        launchedAs: oldExe,
+        baseDir: root,
+        targetEntryPath: newExe,
+      });
+      assert.isTrue(Option.isNone(internal));
+      assert.equal(yield* fs.readLink(oldExe), bundled);
     }).pipe(Effect.provideService(HostProcess.Platform, "linux")),
   );
 

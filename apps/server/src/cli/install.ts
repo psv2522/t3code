@@ -32,7 +32,11 @@ export class CliInstallError extends Schema.TaggedError<CliInstallError>()("CliI
 const standaloneRuntime = Effect.gen(function* () {
   const path = yield* Path.Path;
   if (!(yield* HostProcess.IsExecutable)) return Option.none();
-  const executable = yield* HostProcess.ExecutablePath;
+  const hostExecutable = yield* HostProcess.ExecutablePath;
+  const bundledExecutable = path.join("T3 Code Service.app", "Contents", "MacOS", "t3");
+  const executable = hostExecutable.endsWith(`${path.sep}${bundledExecutable}`)
+    ? `${hostExecutable.slice(0, -bundledExecutable.length)}t3`
+    : hostExecutable;
   const versionsDir = path.dirname(path.dirname(executable));
   const runtimeDir = path.dirname(versionsDir);
   if (path.basename(versionsDir) !== "versions" || path.basename(runtimeDir) !== "runtime") {

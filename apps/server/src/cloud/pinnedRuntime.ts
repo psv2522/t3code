@@ -496,7 +496,6 @@ export const recordPinnedRuntimeLauncher = Effect.fn("cloud.pinned_runtime.recor
   },
 );
 
-/** Whether `candidate` is a version's own executable, `<versionsDir>/<version>/t3[.exe]`. */
 export function isVersionExecutable(
   path: Path.Path,
   versionsDir: string,
@@ -504,7 +503,12 @@ export function isVersionExecutable(
 ): boolean {
   const relative = path.relative(versionsDir, path.resolve(candidate));
   // On another Windows drive, relative() returns the absolute path, like `D:\t3.exe`.
-  return !path.isAbsolute(relative) && /^(?!\.\.)[^\\/]+[\\/]t3(?:\.exe)?$/i.test(relative);
+  return (
+    !path.isAbsolute(relative) &&
+    /^(?!\.\.)[^\\/]+[\\/](?:T3 Code Service\.app[\\/]Contents[\\/]MacOS[\\/])?t3(?:\.exe)?$/i.test(
+      relative,
+    )
+  );
 }
 
 /** The executable a `t3.cmd` shim written by the install script or `t3 update` runs. */
@@ -554,13 +558,15 @@ const shellLauncherTargets = Effect.fn("cloud.pinned_runtime.shell_launcher_targ
           yield* fs.realPath(launcher).pipe(Effect.orElseSucceed(() => undefined));
     if (target === undefined) continue;
     // A runtime's own entry, on the macOS service PATH or recorded by an earlier prune, is no launcher.
-    // It is named as `versions/<version>/t3`, and neither it nor its directory is a link.
     const entryDir = path.dirname(path.resolve(launcher));
-    const parent = path.dirname(entryDir);
+    const parent = yield* fs
+      .realPath(path.dirname(entryDir))
+      .pipe(Effect.orElseSucceed(() => path.dirname(entryDir)));
     if (
       platform !== "win32" &&
       (parent === versionsDir || parent === realVersionsDir) &&
-      target === path.join(realVersionsDir, path.basename(entryDir), path.basename(launcher))
+      isVersionExecutable(path, realVersionsDir, target) &&
+      launcherOwnsVersionsDir(path, path.join(realVersionsDir, path.basename(entryDir)), target)
     ) {
       continue;
     }

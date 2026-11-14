@@ -162,6 +162,19 @@ it.layer(NodeServices.layer)("t3 install", (it) => {
         ),
       ).pipe(Effect.flip);
       assert.include(unrunnable.message, "has % or non-ASCII characters");
+
+      const bundled = path.join(path.dirname(executable), "T3 Code Service.app/Contents/MacOS/t3");
+      yield* fs.makeDirectory(path.dirname(bundled), { recursive: true });
+      yield* fs.rename(executable, bundled);
+      yield* fs.symlink(bundled, executable);
+      const bundledInstall = installCli().pipe(
+        Effect.provideService(HostProcess.Platform, "darwin"),
+        Effect.provideService(HostProcess.ExecutablePath, bundled),
+      );
+      yield* provide(bundledInstall);
+      assert.equal(yield* fs.readLink(link), executable);
+      yield* provide(bundledInstall);
+      assert.equal(yield* fs.realPath(link), yield* fs.realPath(bundled));
     }),
   );
 
