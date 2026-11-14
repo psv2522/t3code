@@ -564,7 +564,6 @@ export const recordPinnedRuntimeLauncher = Effect.fn("cloud.pinned_runtime.recor
   },
 );
 
-/** Whether `candidate` is a version's own executable, `<versionsDir>/<version>/t3[.exe]`. */
 export function isVersionExecutable(
   path: Path.Path,
   versionsDir: string,
@@ -572,7 +571,12 @@ export function isVersionExecutable(
 ): boolean {
   const relative = path.relative(versionsDir, path.resolve(candidate));
   // On another Windows drive, relative() returns the absolute path, like `D:\t3.exe`.
-  return !path.isAbsolute(relative) && /^(?!\.\.)[^\\/]+[\\/]t3(?:\.exe)?$/i.test(relative);
+  return (
+    !path.isAbsolute(relative) &&
+    /^(?!\.\.)[^\\/]+[\\/](?:T3 Code Service\.app[\\/]Contents[\\/]MacOS[\\/])?t3(?:\.exe)?$/i.test(
+      relative,
+    )
+  );
 }
 
 /** The executable a `t3.cmd` shim written by the install script or `t3 update` runs. */
@@ -616,7 +620,10 @@ export const findPosixLauncher = Effect.fn("cloud.pinned_runtime.find_posix_laun
     const path = yield* Path.Path;
     const environment = yield* HostProcess.Environment;
     const linkTarget = yield* fs.readLink(input.launchedAs).pipe(Effect.option);
-    if (Option.isSome(linkTarget)) {
+    if (
+      Option.isSome(linkTarget) &&
+      !isVersionExecutable(path, input.versionsDir, input.launchedAs)
+    ) {
       const resolved = path.resolve(path.dirname(input.launchedAs), linkTarget.value);
       return isVersionExecutable(path, input.versionsDir, resolved) ? input.launchedAs : undefined;
     }
@@ -729,14 +736,16 @@ const shellLauncherTargets = Effect.fn("cloud.pinned_runtime.shell_launcher_targ
         ? resolved
         : yield* fs.realPath(scriptTarget).pipe(Effect.orElseSucceed(() => scriptTarget));
     // A runtime's own entry, on the macOS service PATH or recorded by an earlier prune, is no launcher.
-    // It is named as `versions/<version>/t3`, and neither it nor its directory is a link.
     const entryDir = path.dirname(path.resolve(launcher));
-    const parent = path.dirname(entryDir);
+    const parent = yield* fs
+      .realPath(path.dirname(entryDir))
+      .pipe(Effect.orElseSucceed(() => path.dirname(entryDir)));
     if (
       platform !== "win32" &&
       scriptTarget === undefined &&
       (parent === versionsDir || parent === realVersionsDir) &&
-      target === path.join(realVersionsDir, path.basename(entryDir), path.basename(launcher))
+      isVersionExecutable(path, realVersionsDir, target) &&
+      launcherOwnsVersionsDir(path, path.join(realVersionsDir, path.basename(entryDir)), target)
     ) {
       continue;
     }
