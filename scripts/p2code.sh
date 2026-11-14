@@ -206,6 +206,7 @@ cmd_build() {
   require_cmd lipo
   require_cmd strip
   require_cmd security
+  require_cmd python3
   signing_identity_present || die "No '$SIGN_IDENTITY' signing identity in the keychain. Run: p2code setup-signing"
 
   cd "$REPO"
@@ -273,6 +274,9 @@ cmd_build() {
     --output-dir "$build_dir/cli"
   local archive="$build_dir/cli/t3-$version-darwin-arm64.tar.gz"
   [[ -f "$archive" ]] || die "Expected archive $archive was not produced."
+  step "Bundling and signing background server" python3 "$REPO/scripts/p2code-cli-bundle.py" \
+    --archive "$archive" --version "$version" --identity "$SIGN_IDENTITY" \
+    --entitlements "$REPO/apps/server/resources/cli-entitlements.plist"
 
   local smoke_log="$build_dir/cli-smoke.log"
   printf '  Smoke-testing CLI archive in parallel (log: %s)\n' "$smoke_log"
@@ -505,7 +509,7 @@ cmd_install() {
   repoint_launcher "$version"
 
   tries=0
-  until pgrep -f "runtime/versions/$version/t3" >/dev/null 2>&1; do
+  until pgrep -f "runtime/versions/$version/(T3 Code Service.app/Contents/MacOS/)?t3" >/dev/null 2>&1; do
     tries=$((tries + 1))
     [[ "$tries" -lt 60 ]] || die "Server $version is not running. Run: scripts/p2code.sh rollback"
     sleep 1
