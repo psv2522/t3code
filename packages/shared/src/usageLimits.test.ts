@@ -5,11 +5,13 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   UsageLimitSourceId,
+  type UsageLimitSourceAccount,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   type LimitAccount,
+  type LimitPresentations,
   displayLimitWindows,
   cursorUsageWindowDetails,
   collectProviderUsageLimits,
@@ -17,6 +19,7 @@ import {
   withUsageLimitsCommands,
   collectLimitAccounts,
   findProviderLimitAccount,
+  findProviderLimitPool,
   providersCoveredByUsageSources,
   collectExternalUsageLinks,
   collectLimitNotices,
@@ -239,6 +242,108 @@ describe("pools", () => {
     checkedAt,
   };
   const laptop = { entry: { target: { label: "Laptop" } } };
+
+  it("pools only readable hub accounts at the provider endpoint after identity lookup misses", () => {
+    const environmentId = EnvironmentId.make("env-a");
+    const origin = "https://hub.example.com";
+    const native = provider({
+      auth: { status: "unknown", endpoint: origin },
+      usageLimits: { checkedAt, windows: [], unavailable: { reason: "unsupported" } },
+    });
+    const first = {
+      id: "first.json",
+      driver: native.driver,
+      email: "first@example.com",
+      usageLimits: {
+        checkedAt,
+        windows: [window, { ...window, id: "weekly", kind: "weekly" as const, label: "Weekly" }],
+      },
+    };
+    const second = {
+      ...first,
+      id: "second.json",
+      email: undefined,
+      usageLimits: {
+        checkedAt,
+        windows: first.usageLimits.windows.map((entry) => ({ ...entry, usedPercent: 80 })),
+      },
+    };
+    const input: LimitPresentations = new Map([
+      [
+        environmentId,
+        {
+          ...laptop,
+          serverConfig: {
+            providers: [native],
+            usageLimitSources: [{ ...source, origin, accounts: [first, second] }],
+          },
+        },
+      ],
+      [
+        EnvironmentId.make("env-b"),
+        {
+          ...laptop,
+          serverConfig: {
+            providers: [],
+            usageLimitSources: [
+              { ...source, origin, accounts: [{ ...first, id: "foreign.json" }] },
+            ],
+          },
+        },
+      ],
+    ]);
+    const lookup = (
+      accounts: readonly UsageLimitSourceAccount[] = [first, second],
+      auth: ServerProvider["auth"] = native.auth,
+    ) =>
+      findProviderLimitPool(
+        new Map([
+          ...input,
+          [
+            environmentId,
+            {
+              ...laptop,
+              serverConfig: {
+                providers: [{ ...native, auth }],
+                usageLimitSources: [{ ...source, origin, accounts }],
+              },
+            },
+          ],
+        ]),
+        environmentId,
+        native.instanceId,
+        now,
+      );
+    expect(findProviderLimitAccount(input, environmentId, native.instanceId)).toBeUndefined();
+    expect(lookup()?.windows.map((entry) => [entry.label, entry.remainingPercent])).toEqual([
+      ["Session", 40],
+      ["Weekly", 40],
+    ]);
+    expect(lookup()?.accounts.map((account) => account.email ?? account.displayName)).toEqual([
+      "first@example.com",
+      "second",
+    ]);
+    expect(lookup([])).toBeUndefined();
+    expect(lookup([{ ...first, driver: claude }])).toBeUndefined();
+    expect(lookup([first])?.windows.map((entry) => entry.remainingPercent)).toEqual([60, 60]);
+    expect(lookup([first])?.windows.map((entry) => entry.members[0]?.window)).toEqual(
+      first.usageLimits.windows,
+    );
+    expect(
+      lookup([first], { status: "unknown", endpoint: "https://other.example.com" }),
+    ).toBeUndefined();
+    expect(
+      lookup([
+        {
+          ...first,
+          usageLimits: { checkedAt, windows: [], unavailable: { reason: "unsupported" } },
+        },
+      ]),
+    ).toBeUndefined();
+    expect(
+      lookup([first, second], { status: "authenticated", endpoint: origin, email: first.email }),
+    ).toBeUndefined();
+  });
 
   it("prefers hub accounts over the local provider for the same driver", () => {
     const native = provider({ usageLimits: { checkedAt, windows: [window] } });

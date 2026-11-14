@@ -332,8 +332,15 @@ export function UsagePage() {
     .sort()
     .join(",");
   const autoRefreshLimits = useEffectEvent(() => {
-    void refreshLimits(true);
+    void refreshLimits(true).catch(() => {});
   });
+  const refreshLimitsOnOpen = useEffectEvent(() => {
+    void refreshLimits().catch(() => {});
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opening Usage explicitly refreshes limits
+  useEffect(() => {
+    refreshLimitsOnOpen();
+  }, []);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes provider limits from the server when the connected environment set changes
   useEffect(() => {
     if (showingLimits && connectedLimitsEnvironments) autoRefreshLimits();

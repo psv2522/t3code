@@ -5,6 +5,8 @@ import type {
 } from "@t3tools/contracts";
 import {
   findProviderLimitAccount,
+  findProviderLimitPool,
+  type LimitPoolWindow,
   formatDuration,
   type LimitPace,
   limitsNotice,
@@ -54,12 +56,15 @@ export function ThreadDetailsUsage({
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
-  const refreshLimits = useEffectEvent((id: EnvironmentId) => {
+  const refreshLimits = (id: EnvironmentId, automatic = false) => {
     void refreshUsageLimits(
       id,
       () => refreshProviders({ environmentId: id, input: { limitsOnly: true } }),
-      true,
+      automatic,
     ).catch(() => {});
+  };
+  const autoRefreshLimits = useEffectEvent((id: EnvironmentId) => {
+    refreshLimits(id, true);
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes limits when the panel's environment connects
   useEffect(() => {
@@ -68,18 +73,25 @@ export function ThreadDetailsUsage({
       providerInstanceId !== null &&
       presentation?.connection.phase === "connected"
     ) {
-      refreshLimits(environmentId);
+      autoRefreshLimits(environmentId);
     }
   }, [environmentId, providerInstanceId, presentation?.connection.phase]);
-  const limits =
+  const pool =
     environmentId !== null && providerInstanceId !== null
+      ? findProviderLimitPool(presentations, environmentId, providerInstanceId, now)
+      : undefined;
+  const limits =
+    !pool && environmentId !== null && providerInstanceId !== null
       ? (findProviderLimitAccount(presentations, environmentId, providerInstanceId)?.limits ??
         presentation?.serverConfig?.providers.find(
           (provider) => provider.instanceId === providerInstanceId,
         )?.usageLimits)
       : undefined;
-  if (!limits) return null;
-  const notice = limitsNotice(limits);
+  if (!limits && !pool) return null;
+  const notice = !pool && limits ? limitsNotice(limits) : null;
+  const onRefresh = () => {
+    if (environmentId !== null) refreshLimits(environmentId);
+  };
 
   return (
     <ThreadDetailsSection
@@ -94,10 +106,17 @@ export function ThreadDetailsUsage({
             fill={null}
             tone={null}
             value="Unavailable"
+            onClick={onRefresh}
             tooltip={<span className="text-foreground">{notice}</span>}
           />
+        ) : pool ? (
+          pool.windows.map((window) => (
+            <PooledLimitRow key={window.id} window={window} now={now} onRefresh={onRefresh} />
+          ))
         ) : (
-          limits.windows.map((window) => <LimitRow key={window.id} window={window} now={now} />)
+          limits?.windows.map((window) => (
+            <LimitRow key={window.id} window={window} now={now} onRefresh={onRefresh} />
+          ))
         )}
       </div>
     </ThreadDetailsSection>
@@ -160,12 +179,56 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
   );
 }
 
+function PooledLimitRow({
+  window,
+  now,
+  onRefresh,
+}: {
+  readonly window: LimitPoolWindow;
+  readonly now: number;
+  readonly onRefresh: () => void;
+}) {
+  const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
+  const left = window.remainingPercent;
+  return (
+    <UsageRow
+      label={window.label}
+      fill={left}
+      tone={left <= 10 ? "error" : left <= 20 ? "warning" : null}
+      value={`${left}%`}
+      ariaValue={`${left}% left`}
+      onClick={onRefresh}
+      tooltip={
+        <>
+          <span className="text-foreground">
+            {window.label}: {left}% left · Pooled across {window.members.length}{" "}
+            {window.members.length === 1 ? "account" : "accounts"}
+          </span>
+          {window.members.map(({ account, window: member }) => {
+            const resetsAt = member.resetsAt ? Date.parse(member.resetsAt) : Number.NaN;
+            return (
+              <span key={account.key} className="text-muted-foreground">
+                {account.email ?? account.displayName}: {remainingPercent(member)}% left
+                {member.resetsAt && resetsAt > now
+                  ? ` · Resets ${formatUpcomingTimestamp(member.resetsAt, timestampFormat, now)}`
+                  : null}
+              </span>
+            );
+          })}
+        </>
+      }
+    />
+  );
+}
+
 function LimitRow({
   window,
   now,
+  onRefresh,
 }: {
   readonly window: ServerProviderUsageWindow;
   readonly now: number;
+  readonly onRefresh: () => void;
 }) {
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const left = remainingPercent(window);
@@ -178,6 +241,7 @@ function LimitRow({
       tone={left <= 10 ? "error" : left <= 20 ? "warning" : null}
       value={`${left}%`}
       ariaValue={`${left}% left`}
+      onClick={onRefresh}
       tooltip={
         <>
           <span className="text-foreground">
@@ -206,6 +270,7 @@ function UsageRow({
   ariaValue = value,
   tooltip,
   muted = false,
+  onClick,
 }: {
   readonly label: string;
   /** Bar fill from 0 to 100. Null hides the bar. */
@@ -217,16 +282,28 @@ function UsageRow({
   readonly ariaValue?: string;
   readonly tooltip: ReactNode;
   readonly muted?: boolean;
+  readonly onClick?: () => void;
 }) {
+  const triggerClassName =
+    "col-span-3 grid h-6 grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]";
   return (
     <Tooltip>
       <TooltipTrigger
         render={
-          <div
-            tabIndex={0}
-            aria-label={`${label}: ${ariaValue}`}
-            className="col-span-3 grid h-6 cursor-default grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]"
-          />
+          onClick ? (
+            <button
+              type="button"
+              aria-label={`${label}: ${ariaValue}. Refresh usage limits`}
+              onClick={onClick}
+              className={cn(triggerClassName, "cursor-pointer")}
+            />
+          ) : (
+            <div
+              tabIndex={0}
+              aria-label={`${label}: ${ariaValue}`}
+              className={cn(triggerClassName, "cursor-default")}
+            />
+          )
         }
       >
         <span className="max-w-28 truncate text-muted-foreground">{label}</span>

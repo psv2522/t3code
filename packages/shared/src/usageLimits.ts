@@ -471,6 +471,43 @@ export function findProviderLimitAccount(
   return accounts.get(resolveKey(nativeReport(provider)) ?? `${environmentId}:${instanceId}`);
 }
 
+export function findProviderLimitPool(
+  presentations: LimitPresentations,
+  environmentId: EnvironmentId,
+  instanceId: ProviderInstanceId,
+  now: number,
+) {
+  const config = presentations.get(environmentId)?.serverConfig;
+  const provider = config?.providers.find(
+    (candidate) => candidate.instanceId === instanceId && candidate.enabled,
+  );
+  if (!provider?.auth.endpoint) return undefined;
+  if (findProviderLimitAccount(presentations, environmentId, instanceId)) return undefined;
+  const sources = (config?.usageLimitSources ?? []).filter(
+    (source) => source.origin === provider.auth.endpoint,
+  );
+  const accounts = sources.flatMap((source) =>
+    source.accounts
+      .filter(
+        (account) =>
+          account.driver === provider.driver && limitsNotice(account.usageLimits) === null,
+      )
+      .map((account) => ({
+        key: `${source.id}:${account.id}`,
+        driver: account.driver,
+        displayName: account.email ? null : hubAccountName(account),
+        email: account.email,
+        plan: account.plan,
+        accentColor: undefined,
+        environments: [],
+        sourceLabel: source.label,
+        redeem: null,
+        limits: account.usageLimits,
+      })),
+  );
+  return collectLimitPools(accounts, now)[0];
+}
+
 export function collectLimitNotices(presentations: LimitPresentations): readonly string[] {
   const label = (environmentLabel: string, subject: string) =>
     presentations.size > 1 ? `${environmentLabel} · ${subject}` : subject;
