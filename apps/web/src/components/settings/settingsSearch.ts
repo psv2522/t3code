@@ -416,12 +416,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("latex tex katex equations formulas markdown")],
   },
   {
-    id: "background-image",
-    title: "Background image",
-    to: "/settings/appearance",
-    searchTerms: ["wallpaper picture photo dither dithering noise grain visibility opacity"],
-  },
-  {
     id: "panel-animations",
     title: msg("Panel animations"),
     to: "/settings/appearance",

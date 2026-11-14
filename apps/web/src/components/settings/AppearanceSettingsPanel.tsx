@@ -36,7 +36,6 @@ import {
 import { useSearchableSetting } from "./settingsSearch";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
-import { BackgroundImageSettings } from "./BackgroundImageSettings";
 import { TypographySection } from "./TypographySettings";
 import { ThreadDetailsItemsRow } from "./ThreadDetailsItemsRow";
 
@@ -544,8 +543,6 @@ export function AppearanceSettingsPanel() {
           />
         </AdvancedSettings>
       </SettingsSection>
-
-      <BackgroundImageSettings />
 
       <TypographySection />
     </SettingsPageContainer>

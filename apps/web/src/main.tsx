@@ -11,7 +11,6 @@ import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
 import { whenLocaleReady } from "./i18n/runtime";
 import { chunkLoadState } from "./lib/chunkReloadGuard";
-import { MainBackgroundStartup } from "./mainBackground";
 
 const stopTrackingKeyboardLayout = trackKeyboardLayout();
 import.meta.hot?.dispose(stopTrackingKeyboardLayout);
@@ -41,7 +40,6 @@ export const startup = router
     if (chunkLoadState.reloadScheduled) return;
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
-        <MainBackgroundStartup />
         {ManagedAuthShell && clerkPublishableKey ? (
           <React.Suspense
             fallback={
