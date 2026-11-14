@@ -91,6 +91,8 @@ const SETTINGS_SEARCH_TERMS = {
     msg("locale", { $context: "settings search keyword" }),
     msg("translation", { $context: "settings search keyword" }),
     msg("english", { $context: "settings search keyword" }),
+    msg("sync settings across devices", { $context: "settings search keyword" }),
+    msg("sync preferences desktop mobile newest change", { $context: "settings search keyword" }),
     msg("project grouping", { $context: "settings search keyword" }),
     msg("group projects", { $context: "settings search keyword" }),
     msg("organization", { $context: "settings search keyword" }),

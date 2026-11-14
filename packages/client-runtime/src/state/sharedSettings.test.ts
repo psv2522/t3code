@@ -5,9 +5,33 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { filterSharedServerPatch } from "./sharedSettings.ts";
+import { filterSharedServerPatch, supportsClientSettingsSync } from "./sharedSettings.ts";
 
 describe("filterSharedServerPatch", () => {
+  it("requires an explicitly advertised client settings map on a connected environment", () => {
+    expect(
+      supportsClientSettingsSync({
+        connection: { phase: "connected" },
+        serverConfig: { settings: DEFAULT_SERVER_SETTINGS },
+      }),
+    ).toBe(false);
+    expect(
+      supportsClientSettingsSync({
+        connection: { phase: "connected" },
+        serverConfig: { settings: { ...DEFAULT_SERVER_SETTINGS, syncedClientSettings: {} } },
+      }),
+    ).toBe(true);
+    expect(
+      supportsClientSettingsSync({
+        connection: { phase: "offline" },
+        serverConfig: { settings: { ...DEFAULT_SERVER_SETTINGS, syncedClientSettings: {} } },
+      }),
+    ).toBe(false);
+    expect(
+      supportsClientSettingsSync({ connection: { phase: "connected" }, serverConfig: null }),
+    ).toBe(false);
+  });
+
   it("holds the restart preference until the target's config loads", () => {
     const patch = { continueThreadsAfterServerUpdate: true, sidebarAutoSettleAfterDays: 7 };
     expect(filterSharedServerPatch(patch, undefined)).toEqual({ sidebarAutoSettleAfterDays: 7 });

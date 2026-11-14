@@ -105,6 +105,8 @@ export const GTProvider = (props) => props.children;
 `;
 
 export default defineConfig({
+  // Effect test helpers must share the runner’s Vite+ instance across pnpm peer variants.
+  resolve: { dedupe: ["vite-plus"] },
   plugins: [
     {
       name: "gt-react-native-test",
@@ -121,6 +123,7 @@ export default defineConfig({
     },
   ],
   test: {
+    server: { deps: { inline: ["@effect/vitest"] } },
     hookTimeout: 60_000,
     testTimeout: 60_000,
     projects: [

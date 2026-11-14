@@ -94,6 +94,7 @@ describe("mobile preferences state", () => {
         suspendOnWaiting: true,
       });
       const saveResult = yield* Fiber.join(save);
+      expect(registry.get(state.loadedSuccessfullyAtom)).toBe(true);
       expect(preferences).toEqual({
         baseFontSize: 18,
         collapsedProjectGroups: ["project:new"],
@@ -228,6 +229,7 @@ describe("mobile preferences state", () => {
           suspendOnWaiting: true,
         }),
       ).toEqual({});
+      expect(registry.get(state.loadedSuccessfullyAtom)).toBe(false);
 
       unmount();
       registry.dispose();

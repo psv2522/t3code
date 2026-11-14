@@ -22,6 +22,16 @@ Turn on **Settings → Appearance → Render math** (per device) to render LaTeX
 - Currency like `$5 and $10` stays plain text; use `\$` to escape other literal dollar signs.
 - Copying a formula or exporting a table preserves the raw TeX. The composer keeps TeX source editable.
 
+## Sync settings across devices
+
+Turn on **Sync settings across devices** in **Settings → General** on each device to share
+preferences through your connected environments. Every device and server must run a build that
+supports settings sync. It syncs tool call visibility, highest reasoning levels, follow-up behavior,
+language, math rendering, the working section, and project grouping.
+
+The newest change wins. For a customised setting that has not been synced before, the first device
+to sync it provides its starting value. Turn the switch off on a device to keep its preferences local.
+
 ## Motion
 
 Sidebars, the right panel, and the terminal drawer open immediately by default. Adjust **Settings → Appearance → Panel animations** (0–400 ms) to enable transitions, unless OS reduced motion is enabled.

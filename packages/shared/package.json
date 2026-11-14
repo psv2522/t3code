@@ -187,6 +187,10 @@
       "types": "./src/Struct.ts",
       "import": "./src/Struct.ts"
     },
+    "./syncedClientSettings": {
+      "types": "./src/syncedClientSettings.ts",
+      "import": "./src/syncedClientSettings.ts"
+    },
     "./serverSettings": {
       "types": "./src/serverSettings.ts",
       "import": "./src/serverSettings.ts"
