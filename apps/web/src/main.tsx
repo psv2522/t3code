@@ -10,7 +10,6 @@ import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
 import { whenLocaleReady } from "./i18n/runtime";
 import { reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
-import { MainBackgroundStartup } from "./mainBackground";
 
 const router = startAppServices();
 
@@ -45,7 +44,6 @@ export const startup = router
     if (reloadScheduled) return;
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
-        <MainBackgroundStartup />
         {ManagedAuthShell && clerkPublishableKey ? (
           <React.Suspense
             fallback={

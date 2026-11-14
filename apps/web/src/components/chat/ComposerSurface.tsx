@@ -31,7 +31,7 @@ function Shell({
 }
 
 const outlineClasses =
-  "[--chat-composer-strong-outline:color-mix(in_srgb,var(--chat-composer-outline),var(--foreground)_6%)] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-(--chat-composer-strong-outline) dark:after:inset-shadow-2xs dark:after:inset-shadow-(color:--chat-composer-highlight)";
+  "after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-(--chat-composer-outline) dark:after:inset-shadow-2xs dark:after:inset-shadow-(color:--chat-composer-highlight)";
 
 function Host({ className, ...props }: ComponentProps<"div">) {
   return (
@@ -73,7 +73,7 @@ function ContextStrip({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="composer-context-strip"
       className={cn(
-        "group/composer-context relative flex w-full items-center gap-2 overflow-x-clip px-2 pt-2 text-foreground [&_button]:text-foreground [&_[data-composer-context-control]]:text-foreground",
+        "group/composer-context surface-glass relative flex w-full items-center gap-2 overflow-x-clip px-2 pt-2 text-muted-foreground",
         className,
       )}
       {...props}
