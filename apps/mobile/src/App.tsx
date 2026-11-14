@@ -1,3 +1,4 @@
+import { SettingsSyncCoordinator } from "./state/SettingsSyncCoordinator";
 import { installPermissionUpdateNotice } from "./features/connection/permissionUpdateNotice";
 import { installComposerAttachmentUploads } from "./state/composer-attachment-uploads";
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
@@ -307,6 +308,7 @@ function AppContent() {
     <>
       <SplashScreenCoordinator />
       <QuickActionsLanguage />
+      <SettingsSyncCoordinator />
       <SubscriptionUsageCoordinator />
       <ConnectDeviceApprovalCoordinator />
       <GestureHandlerRootView className="flex-1">

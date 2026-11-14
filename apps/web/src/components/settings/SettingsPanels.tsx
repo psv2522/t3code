@@ -1,5 +1,6 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m as resolveMessage } from "~/i18n/messages";
+import { supportsClientSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { useAtomValue } from "@effect/atom-react";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
@@ -500,6 +501,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
 
   const changedSettingLabels = [
+    ...(settings.settingsSyncEnabled ? [gt("Sync settings across devices")] : []),
     ...(theme !== "system" ? [gt("Theme")] : []),
     ...(!followSystem ? [gt("Follow system")] : []),
     ...(themeHalves !== null ? [gt("Theme mix")] : []),
@@ -711,6 +713,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       return;
     }
     updateSettings({
+      settingsSyncEnabled: DEFAULT_UNIFIED_SETTINGS.settingsSyncEnabled,
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
@@ -846,6 +849,8 @@ function AutoSettleDaysInput({
 }
 
 export function GeneralSettingsPanel() {
+  const { environments } = useEnvironments();
+  const hasSettingsSyncEnvironment = environments.some(supportsClientSettingsSync);
   const gt = useGT();
   const m = useMessages();
   const setting = useSearchableSetting();
@@ -860,6 +865,38 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <SettingsSection id="settings-sync" title={gt("Settings sync")}>
+        <SettingsRow
+          {...setting("settings-sync")}
+          description={
+            <T>
+              Sync tool call visibility, highest reasoning levels, follow-up behavior, language,
+              math rendering, the working section, and project grouping. The newest change wins.
+            </T>
+          }
+          status={
+            settings.settingsSyncEnabled && !hasSettingsSyncEnvironment ? (
+              <T>No connected environment supports settings sync.</T>
+            ) : null
+          }
+          resetAction={
+            settings.settingsSyncEnabled ? (
+              <SettingResetButton
+                ariaLabel={gt("Reset settings sync to default")}
+                onClick={() => updateSettings({ settingsSyncEnabled: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.settingsSyncEnabled}
+              onCheckedChange={(checked) => updateSettings({ settingsSyncEnabled: checked })}
+              aria-label={gt("Sync settings across devices")}
+            />
+          }
+        />
+      </SettingsSection>
+
       <SettingsSection id="notifications" title={gt("Notifications")}>
         <NotificationSettings />
         <SettingsRow
@@ -2059,15 +2096,17 @@ export function ThreadsSettingsPanel() {
 
       <ProjectDefaultsSettings category="general" />
 
-      <SettingsSection id="reasoning" title="Reasoning">
+      <SettingsSection id="reasoning" title={gt("Reasoning")}>
         <SettingsRow
-          {...searchableSetting("show-highest-reasoning-efforts")}
-          description="Show Max, Ultra, Ultracode, and Ultrathink in reasoning pickers for all models on this device."
+          {...setting("show-highest-reasoning-efforts")}
+          description={gt(
+            "Show Max, Ultra, Ultracode, and Ultrathink in reasoning pickers for all models on this device.",
+          )}
           resetAction={
             settings.showHighestReasoningEfforts !==
             DEFAULT_UNIFIED_SETTINGS.showHighestReasoningEfforts ? (
               <SettingResetButton
-                label="highest reasoning levels"
+                ariaLabel={gt("Reset highest reasoning levels to default")}
                 onClick={() =>
                   updateSettings({
                     showHighestReasoningEfforts:
@@ -2083,7 +2122,7 @@ export function ThreadsSettingsPanel() {
               onCheckedChange={(checked) =>
                 updateSettings({ showHighestReasoningEfforts: checked })
               }
-              aria-label="Show highest reasoning levels"
+              aria-label={gt("Show highest reasoning levels")}
             />
           }
         />
