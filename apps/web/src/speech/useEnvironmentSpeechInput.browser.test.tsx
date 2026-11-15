@@ -368,6 +368,7 @@ it.each([
   ["is disconnected", () => mocks.connected.delete("env-a")],
   ["cannot operate", () => mocks.canDictate.delete("env-a")],
   ["does not support transcription", () => mocks.voiceCapable.delete("env-a")],
+  ["is set while voice input is turned off", () => (mocks.settings = { voiceInputEnabled: false })],
 ])(
   "does not fall back to another environment when the chosen one %s",
   async (_, breakDestination) => {

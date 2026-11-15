@@ -2,6 +2,9 @@
 
 Dictate into the composer, citation comments, diff/file annotations, PR comments, and desktop browser annotations. Transcripts land in your draft for review—nothing is sent to an agent until you submit.
 
+To hide the microphone button and turn dictation off on a device, switch off
+**Settings → Voice → Voice input**. Your other voice settings are kept.
+
 ## Choose where audio goes
 
 - **Web and desktop**: Nothing is recorded or sent until you choose a destination in **Settings → Voice → Transcribe with**:

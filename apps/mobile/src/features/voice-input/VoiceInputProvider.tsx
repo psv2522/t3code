@@ -67,6 +67,9 @@ export const localVoiceTranscriberAtom = makePermissionStatusAtom<
 }).pipe(Atom.keepAlive);
 
 const voiceInputAvailableAtom = Atom.make((get) => {
+  const preferences = get(mobilePreferencesAtom);
+  if (AsyncResult.isSuccess(preferences) && preferences.value.voiceInputEnabled === false)
+    return false;
   const route = get(voiceRouteAtom);
   if (route) return route.transcriber !== null;
   const transcriber = get(localVoiceTranscriberAtom);

@@ -613,6 +613,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("beta fast worktree checkout clone apfs copy-on-write cache macos speed")],
   },
   {
+    id: "voice-input-enabled",
+    title: "Voice input",
+    to: "/settings/voice",
+    searchTerms: ["microphone button dictation speech disable hide turn off"],
+  },
+  {
     id: "voice-transcription-destination",
     title: msg("Transcribe with"),
     to: "/settings/voice",
