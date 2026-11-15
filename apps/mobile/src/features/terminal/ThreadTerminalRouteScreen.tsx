@@ -6,9 +6,14 @@ import {
   type TerminalWriteInput,
   DEFAULT_TERMINAL_ID,
   EnvironmentId,
+  ProjectId,
   ThreadId,
   sessionGrantsScope,
 } from "@t3tools/contracts";
+import type {
+  EnvironmentProject,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import { type KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppBar } from "../../components/ui/AppBar";
@@ -50,7 +55,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { uuidv4 } from "../../lib/uuid";
-import { useServerConfigs } from "../../state/entities";
+import { useProject, useServerConfigs } from "../../state/entities";
 import { useConnectionsReady } from "../../state/workspace";
 import {
   MAX_TERMINAL_FONT_SIZE,
@@ -289,9 +294,13 @@ type ThreadTerminalRouteScreenProps = StaticScreenProps<{
   readonly environmentId: string;
   readonly threadId: string;
   readonly terminalId?: string;
+  /** A draft has no saved thread to resolve its project and worktree from. */
+  readonly draftProjectId?: string;
+  readonly draftWorktreePath?: string;
 }>;
 
 type ThreadSelection = ReturnType<typeof useThreadSelection>;
+type TerminalThread = Pick<EnvironmentThreadShell, "environmentId" | "id" | "worktreePath">;
 
 function useTerminalAccess(environmentId: EnvironmentId | null) {
   const session = useEnvironmentQuery(
@@ -322,9 +331,25 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     ? EnvironmentId.make(routeEnvironmentIdRaw)
     : null;
   const access = useTerminalAccess(routeEnvironmentId);
+  const routeThreadId = firstRouteParam(params.threadId);
+  const draftProjectId = firstRouteParam(params.draftProjectId);
+  const draftProject = useProject(
+    selectedThread === null && routeEnvironmentId !== null && draftProjectId !== null
+      ? { environmentId: routeEnvironmentId, projectId: ProjectId.make(draftProjectId) }
+      : null,
+  );
+  const thread: TerminalThread | null =
+    selectedThread ??
+    (draftProject !== null && routeEnvironmentId !== null && routeThreadId !== null
+      ? {
+          environmentId: routeEnvironmentId,
+          id: ThreadId.make(routeThreadId),
+          worktreePath: firstRouteParam(params.draftWorktreePath),
+        }
+      : null);
   const knownSessions = useKnownTerminalSessions({
-    environmentId: selectedThread?.environmentId ?? null,
-    threadId: selectedThread?.id ?? null,
+    environmentId: thread?.environmentId ?? null,
+    threadId: thread?.id ?? null,
   });
   const requestedTerminalId = firstRouteParam(params.terminalId);
   // A route without a terminal shows the thread's running one. The choice is
@@ -347,7 +372,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   const terminalId = explicitTerminalId ?? DEFAULT_TERMINAL_ID;
   const gt = useGT();
 
-  if (!selectedThread) {
+  if (!thread) {
     if (!connectionsReady) {
       return <LoadingScreen message={gt("Opening terminal…")} />;
     }
@@ -364,11 +389,12 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
 
   return (
     <ThreadTerminal
-      key={`${selectedThread.environmentId}:${selectedThread.id}:${terminalId}`}
+      key={`${thread.environmentId}:${thread.id}:${terminalId}`}
       params={params}
       routeEnvironmentId={routeEnvironmentId}
       selection={selection}
-      thread={selectedThread}
+      thread={thread}
+      project={selection.selectedThreadProject ?? draftProject}
       terminalId={terminalId}
       hasExplicitTerminalId={explicitTerminalId !== null}
       access={access}
@@ -400,7 +426,8 @@ function ThreadTerminal(props: {
   readonly params: ThreadTerminalRouteScreenProps["route"]["params"];
   readonly routeEnvironmentId: EnvironmentId | null;
   readonly selection: ThreadSelection;
-  readonly thread: NonNullable<ThreadSelection["selectedThread"]>;
+  readonly thread: TerminalThread;
+  readonly project: EnvironmentProject | null;
   readonly terminalId: string;
   readonly hasExplicitTerminalId: boolean;
   readonly access: ReturnType<typeof useTerminalAccess>;
@@ -409,7 +436,14 @@ function ThreadTerminal(props: {
   const { params, routeEnvironmentId, thread: selectedThread, terminalId } = props;
   const gt = useGT();
   const messages = useMessages();
-  const { selectedThreadProject, selectedEnvironmentConnection } = props.selection;
+  const selectedThreadProject = props.project;
+  const { selectedEnvironmentConnection } = props.selection;
+  const threadRouteParams = {
+    environmentId: String(selectedThread.environmentId),
+    threadId: String(selectedThread.id),
+    ...(params.draftProjectId ? { draftProjectId: params.draftProjectId } : {}),
+    ...(params.draftWorktreePath ? { draftWorktreePath: params.draftWorktreePath } : {}),
+  };
   const {
     session: terminalSession,
     isAuthenticated,
@@ -476,8 +510,7 @@ function ThreadTerminal(props: {
   );
   const [pasteSession] = useState(createTerminalPasteSession);
   const exitNavigation = useTerminalExitNavigation({
-    environmentId: String(selectedThread.environmentId),
-    threadId: String(selectedThread.id),
+    ...threadRouteParams,
     readFallbackTerminalId: () =>
       previousLiveTerminalId({
         sessions: readLiveTerminalSessions(selectedThread.environmentId, selectedThread.id),
@@ -730,8 +763,7 @@ function ThreadTerminal(props: {
 
     navigation.dispatch(
       StackActions.replace("ThreadTerminal", {
-        environmentId: String(selectedThread.environmentId),
-        threadId: String(selectedThread.id),
+        ...threadRouteParams,
         terminalId: nextTerminalId,
       }),
     );
@@ -777,8 +809,7 @@ function ThreadTerminal(props: {
 
     navigation.dispatch(
       StackActions.replace("ThreadTerminal", {
-        environmentId: String(selectedThread.environmentId),
-        threadId: String(selectedThread.id),
+        ...threadRouteParams,
         terminalId: nextOpenTerminalId({
           listedTerminalIds: terminalMenuSessions.map((session) => session.terminalId),
           activeRouteTerminalId: terminalId,
