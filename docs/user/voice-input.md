@@ -10,6 +10,9 @@ On iPhone and Android, voice input transcribes on the device by default. To opt 
 to a named environment on that phone, open **Settings → Voice → Transcribe on**. See
 [Voice input on mobile](./composer.md#voice-input-on-mobile).
 
+To hide the microphone button and turn dictation off on a device, switch off
+**Settings → Voice → Voice input**. Your other voice settings are kept.
+
 ## Choose where audio goes
 
 On web and desktop, you choose where transcription runs.

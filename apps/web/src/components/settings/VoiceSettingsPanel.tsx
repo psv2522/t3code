@@ -1418,6 +1418,7 @@ export function VoiceSettingsPanel() {
     chosenEnvironment?.serverConfig != null &&
     chosenEnvironment.serverConfig.environment.capabilities.voiceTranscription !== true;
   const model = prepared && modelStatus?.supported ? modelStatus : null;
+  const whenOff = settings.voiceInputEnabled ? {} : { inert: true, className: "opacity-50" };
 
   return (
     <SettingsPageContainer
@@ -1439,7 +1440,23 @@ export function VoiceSettingsPanel() {
         "speech-correction-word": cleanupEnabled ? undefined : "speech-post-processing",
       }}
     >
-      <SettingsSection id="voice-input" title={gt("Input")}>
+      <SettingsSection title={gt("Voice input")} hideTitle>
+        <SettingsRow
+          {...setting("voice-input-enabled")}
+          description={gt("Show the microphone button and allow the dictation shortcut.")}
+          control={
+            <Switch
+              aria-label={gt("Voice input")}
+              checked={settings.voiceInputEnabled}
+              onCheckedChange={(checked) =>
+                void updateClientSettings({ voiceInputEnabled: checked })
+              }
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection id="voice-input" title={gt("Input")} {...whenOff}>
         <SettingsRow
           {...setting("voice-microphone")}
           title={gt("Microphone")}
@@ -1508,7 +1525,7 @@ export function VoiceSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection id="voice-transcription" title={gt("Transcription")}>
+      <SettingsSection id="voice-transcription" title={gt("Transcription")} {...whenOff}>
         <SettingsRow
           {...setting("voice-transcription-destination")}
           title={gt("Transcribe with")}
@@ -1790,7 +1807,7 @@ export function VoiceSettingsPanel() {
         {prepared && <AdvancedSpeechSettings prepared={prepared} catalog={catalog} />}
       </SettingsSection>
 
-      <SettingsSection id="voice-dictionary" title={gt("Dictionary")}>
+      <SettingsSection id="voice-dictionary" title={gt("Dictionary")} {...whenOff}>
         <SettingsRow
           {...setting("speech-dictionary")}
           title={gt("Your dictionary")}
@@ -1807,7 +1824,7 @@ export function VoiceSettingsPanel() {
         <ProjectDictionaryRow />
       </SettingsSection>
 
-      <SettingsSection id={setting("speech-post-processing").id} title={gt("Cleanup")}>
+      <SettingsSection id={setting("speech-post-processing").id} title={gt("Cleanup")} {...whenOff}>
         <SettingsRow
           title={gt("Clean up transcripts")}
           description={gt(

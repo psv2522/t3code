@@ -163,9 +163,11 @@ export function useVoiceTranscriptionDestination() {
 export function useEnvironmentSpeechInput(input: HookInput) {
   const navigate = useNavigate();
   const destination = useVoiceTranscriptionDestination();
-  const prepared = destination.prepared;
-  const onDevice = destination.onDevice === true;
-  const grantId = destination.grantId;
+  const clientSettings = useClientSettings();
+  const enabled = clientSettings.voiceInputEnabled;
+  const prepared = enabled ? destination.prepared : null;
+  const onDevice = enabled && destination.onDevice === true;
+  const grantId = enabled ? destination.grantId : null;
   const cloudProvider = destination.cloudProvider;
   const cloudModel = destination.cloudModel;
   const draftCapabilities = useEnvironment(input.environmentId)?.serverConfig?.environment
@@ -177,7 +179,6 @@ export function useEnvironmentSpeechInput(input: HookInput) {
     (draftCapabilities?.voiceTranscription || draftCapabilities?.cloudVoiceTranscription)
       ? originatingConnection
       : null;
-  const clientSettings = useClientSettings();
   const projectId = input.projectId ?? null;
   const projectWords = useEnvironmentSettings(
     input.environmentId,
@@ -538,7 +539,7 @@ export function useEnvironmentSpeechInput(input: HookInput) {
 
   const destinationReady =
     grantId === null
-      ? Boolean(destination.offerFirstRunSetup) && input.offerSetup !== false
+      ? enabled && Boolean(destination.offerFirstRunSetup) && input.offerSetup !== false
       : onDevice ||
         (prepared !== null &&
           (cloudProvider !== undefined ||

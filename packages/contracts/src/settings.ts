@@ -591,6 +591,7 @@ export const ClientSettingsSchema = Schema.Struct({
   voiceMicrophones: Schema.Array(VoiceMicrophoneEntry).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  voiceInputEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   voiceShortcutMode: VoiceShortcutMode.pipe(Schema.withDecodingDefault(Effect.succeed("auto"))),
   speechLanguage: SpeechLanguage.pipe(Schema.withDecodingDefault(Effect.succeed("auto"))),
   speechTranslateToEnglish: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -2177,6 +2178,7 @@ export const ClientSettingsPatch = Schema.Struct({
   timestampFormat: Schema.optionalKey(TimestampFormat),
   voiceMicrophone: Schema.optionalKey(Schema.String),
   voiceMicrophones: Schema.optionalKey(Schema.Array(VoiceMicrophoneEntry)),
+  voiceInputEnabled: Schema.optionalKey(Schema.Boolean),
   voiceShortcutMode: Schema.optionalKey(VoiceShortcutMode),
   speechLanguage: Schema.optionalKey(SpeechLanguage),
   speechTranslateToEnglish: Schema.optionalKey(Schema.Boolean),
