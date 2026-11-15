@@ -291,10 +291,13 @@ describe("theme files", () => {
       variants: {
         dark: { canvas: "#101827", text: "#eef5ff" },
       },
-      css: "[data-chat-header] { border-bottom: 1px solid red; }",
+      css: `/*${"x".repeat(2 * 1024 * 1024 - 4)}*/`,
     });
 
     expect(JSON.parse(serializeThemeFile(theme)).css).toBe(theme.css);
+    expect(() =>
+      parseThemeFile({ ...JSON.parse(serializeThemeFile(theme)), css: `${theme.css}x` }),
+    ).toThrow("Theme CSS must be text of 2097152 characters or fewer.");
     expect(getThemeModes(theme)).toEqual(["light", "dark"]);
     expect(getThemeColorsForMode(theme, "dark")).toMatchObject({
       canvas: canonical("#101827"),
