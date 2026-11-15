@@ -10,6 +10,8 @@ import { useEffect, useEffectEvent, useRef } from "react";
 export function useTerminalExitNavigation(target: {
   readonly environmentId: string;
   readonly threadId: string;
+  readonly draftProjectId?: string;
+  readonly draftWorktreePath?: string;
   readonly readFallbackTerminalId: () => string | null;
 }) {
   const navigation = useNavigation();
@@ -22,6 +24,8 @@ export function useTerminalExitNavigation(target: {
         StackActions.replace("ThreadTerminal", {
           environmentId: target.environmentId,
           threadId: target.threadId,
+          ...(target.draftProjectId ? { draftProjectId: target.draftProjectId } : {}),
+          ...(target.draftWorktreePath ? { draftWorktreePath: target.draftWorktreePath } : {}),
           terminalId: fallbackTerminalId,
         }),
       );
